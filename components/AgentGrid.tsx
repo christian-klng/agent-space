@@ -116,11 +116,14 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
               className="group relative bg-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all cursor-pointer"
             >
               <div className="flex items-start justify-between mb-4">
-                <img
-                  src={agent.thumbnail}
-                  alt={agent.name}
-                  className="w-12 h-12 rounded-full object-cover border border-gray-100 group-hover:scale-105 transition-transform"
-                />
+                <div className="relative">
+                  <img
+                    src={agent.thumbnail}
+                    alt={agent.name}
+                    className="w-12 h-12 rounded-full object-cover border border-gray-100 group-hover:scale-105 transition-transform"
+                  />
+                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
+                </div>
                 <div className="p-2 bg-gray-50 rounded-lg text-gray-400 group-hover:text-gray-900 group-hover:bg-gray-100 transition-colors">
                   <MessageSquare className="w-4 h-4" />
                 </div>
