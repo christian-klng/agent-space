@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { Agent } from '../types';
-import { MessageSquare, Sparkles } from 'lucide-react';
+import { MessageSquare, Sparkles, AlertCircle } from 'lucide-react';
 
 interface AgentGridProps {
   onSelectAgent: (agent: Agent) => void;
@@ -10,6 +10,7 @@ interface AgentGridProps {
 export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAgents = async () => {
@@ -17,14 +18,11 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
         .from('agents')
         .select('*');
 
-      if (!error && data) {
+      if (error) {
+        console.error('Error fetching agents:', error);
+        setError(error.message);
+      } else if (data) {
         setAgents(data);
-      } else {
-        // Fallback/Demo data if table is empty or error
-        // In a real app we'd show an error state or handle empty state better
-        if (data && data.length === 0) {
-            console.log("No agents found in DB. Seeding or showing empty state recommended.");
-        }
       }
       setLoading(false);
     };
@@ -33,7 +31,6 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
   }, []);
 
   const seedAgents = async () => {
-    // Helper for demo purposes to populate the table if empty
     const demoAgents = [
       {
         name: "Sofia",
@@ -61,8 +58,13 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
       }
     ];
     
-    await supabase.from('agents').insert(demoAgents);
-    window.location.reload();
+    const { error } = await supabase.from('agents').insert(demoAgents);
+    if (error) {
+      console.error('Error seeding agents:', error);
+      setError(error.message);
+    } else {
+      window.location.reload();
+    }
   };
 
   if (loading) {
@@ -73,23 +75,36 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
     );
   }
 
+  if (error) {
+    return (
+      <div className="p-8 max-w-6xl mx-auto">
+        <div className="text-center py-20 border border-dashed border-red-200 rounded-xl bg-red-50">
+          <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-3" />
+          <h3 className="text-red-900 font-medium mb-1">Fehler beim Laden</h3>
+          <p className="text-red-600 text-sm mb-2">{error}</p>
+          <p className="text-red-500 text-xs">Überprüfe die RLS-Policies in Supabase.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 max-w-6xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-2">Select an Agent</h1>
-        <p className="text-gray-500 text-sm">Choose a specialized AI companion to start a conversation.</p>
+        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-2">Wähle einen Agenten</h1>
+        <p className="text-gray-500 text-sm">Wähle einen spezialisierten KI-Assistenten für deine Unterhaltung.</p>
       </div>
 
       {agents.length === 0 ? (
         <div className="text-center py-20 border border-dashed border-gray-200 rounded-xl bg-gray-50">
           <Sparkles className="w-8 h-8 text-gray-400 mx-auto mb-3" />
-          <h3 className="text-gray-900 font-medium mb-1">No Agents Found</h3>
-          <p className="text-gray-500 text-sm mb-4">The database table seems empty.</p>
+          <h3 className="text-gray-900 font-medium mb-1">Keine Agenten gefunden</h3>
+          <p className="text-gray-500 text-sm mb-4">Die Datenbank-Tabelle scheint leer zu sein.</p>
           <button 
             onClick={seedAgents}
             className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
           >
-            Seed Demo Agents
+            Demo-Agenten erstellen
           </button>
         </div>
       ) : (

@@ -7,10 +7,11 @@ import { Send, ArrowLeft, Loader2 } from 'lucide-react';
 interface ChatProps {
   agent: Agent;
   userId: string;
+  workspaceId: string;
   onBack: () => void;
 }
 
-export const Chat: React.FC<ChatProps> = ({ agent, userId, onBack }) => {
+export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,20 +19,22 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, onBack }) => {
 
   useEffect(() => {
     fetchMessages();
+
+    // Realtime subscription für neue Nachrichten im Workspace
     const subscription = supabase
-      .channel('public:messages')
+      .channel(`messages:${workspaceId}:${agent.id}`)
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
         table: 'messages',
-        filter: `user_id=eq.${userId}` // Basic filtering, refine for agent specific if possible via RLS or client filter
+        filter: `workspace_id=eq.${workspaceId}`
       }, (payload) => {
         const newMessage = payload.new as Message;
         if (newMessage.agent_id === agent.id) {
-            setMessages(prev => {
-                if (prev.find(m => m.id === newMessage.id)) return prev;
-                return [...prev, newMessage];
-            });
+          setMessages(prev => {
+            if (prev.find(m => m.id === newMessage.id)) return prev;
+            return [...prev, newMessage];
+          });
         }
       })
       .subscribe();
@@ -39,14 +42,13 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, onBack }) => {
     return () => {
       supabase.removeChannel(subscription);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent.id, userId]);
+  }, [agent.id, workspaceId]);
 
   const fetchMessages = async () => {
     const { data, error } = await supabase
       .from('messages')
       .select('*')
-      .eq('user_id', userId)
+      .eq('workspace_id', workspaceId)
       .eq('agent_id', agent.id)
       .order('created_at', { ascending: true });
 
@@ -72,48 +74,45 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, onBack }) => {
     setInputValue('');
     setLoading(true);
 
-    // Optimistic UI update (optional, but good for UX)
-    // We'll wait for DB confirmation to keep it simple and consistent with subscription
-
     try {
-      // 1. Save User Message
-      const { data: userData, error: userError } = await supabase
+      // 1. User-Nachricht speichern
+      const { error: userError } = await supabase
         .from('messages')
         .insert({
-          user_id: userId,
+          workspace_id: workspaceId,
           agent_id: agent.id,
+          user_id: userId,  // Absender
           content: userContent,
           role: 'user'
-        })
-        .select()
-        .single();
+        });
 
       if (userError) throw userError;
 
-      // 2. Generate AI Response
-      // We pass the current messages state (plus the new one if we wanted to be precise, 
-      // but userData is now in DB, we can just pass current state + new text)
+      // 2. KI-Antwort generieren
       const responseText = await generateAgentResponse(
         messages, 
         userContent,
         agent.system_instruction
       );
 
-      // 3. Save AI Message
+      // 3. KI-Nachricht speichern (ohne user_id, da vom Agenten)
       const { error: aiError } = await supabase
         .from('messages')
         .insert({
-          user_id: userId,
+          workspace_id: workspaceId,
           agent_id: agent.id,
+          user_id: null,  // Agent ist Absender, kein User
           content: responseText,
           role: 'model'
         });
 
       if (aiError) throw aiError;
 
+      // Nachrichten neu laden (falls Realtime nicht greift)
+      await fetchMessages();
+
     } catch (err) {
       console.error('Failed to send message:', err);
-      // Ideally show a toast error here
     } finally {
       setLoading(false);
     }
@@ -146,7 +145,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, onBack }) => {
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {messages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-2">
-            <p className="text-sm">Start a conversation with {agent.name}</p>
+            <p className="text-sm">Starte eine Unterhaltung mit {agent.name}</p>
           </div>
         )}
         
@@ -169,13 +168,13 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, onBack }) => {
           </div>
         ))}
         {loading && (
-           <div className="flex justify-start">
-             <div className="bg-gray-50 border border-gray-100 px-4 py-3 rounded-2xl rounded-tl-sm flex items-center gap-2">
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
-             </div>
-           </div>
+          <div className="flex justify-start">
+            <div className="bg-gray-50 border border-gray-100 px-4 py-3 rounded-2xl rounded-tl-sm flex items-center gap-2">
+              <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+              <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+              <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
+            </div>
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -188,7 +187,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, onBack }) => {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder={`Message ${agent.name}...`}
+            placeholder={`Nachricht an ${agent.name}...`}
             className="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-gray-300 focus:bg-white transition-all placeholder:text-gray-400"
             disabled={loading}
           />

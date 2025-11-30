@@ -24,8 +24,9 @@ export interface Agent {
 
 export interface Message {
   id: string;
-  user_id: string;
+  workspace_id: string;
   agent_id: string;
+  user_id: string | null;  // null wenn Agent der Absender ist
   content: string;
   role: 'user' | 'model';
   created_at: string;

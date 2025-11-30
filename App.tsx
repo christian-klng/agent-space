@@ -158,7 +158,7 @@ const App: React.FC = () => {
           <button
             onClick={() => supabase.auth.signOut()}
             className="text-gray-400 hover:text-gray-900 transition-colors"
-            title="Sign Out"
+            title="Abmelden"
           >
             <LogOut className="w-4 h-4" />
           </button>
@@ -176,6 +176,7 @@ const App: React.FC = () => {
             <Chat
               agent={selectedAgent}
               userId={session.user.id}
+              workspaceId={userProfile.workspace_id}
               onBack={() => setSelectedAgent(null)}
             />
           </div>
