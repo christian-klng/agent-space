@@ -1,8 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Access environment variables
-const envUrl = process.env.SUPABASE_URL;
-const envKey = process.env.SUPABASE_ANON_KEY;
+// Helper to safely access environment variables
+const getEnv = (key: string) => {
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[key];
+  }
+  // In Vite/some browser envs, might be import.meta.env, but sticking to process check for safety
+  return undefined;
+};
+
+// Access environment variables safely
+const envUrl = getEnv('SUPABASE_URL');
+const envKey = getEnv('SUPABASE_ANON_KEY');
 
 // Use environment variables or fallback to a placeholder
 // This allows the app to run immediately with the demo database if no env vars are set
