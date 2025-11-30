@@ -1,0 +1,5 @@
+{
+  "name": "LinearAI",
+  "description": "A Linear-style AI agent platform featuring Supabase authentication, real-time chat, and Google Gemini integration.",
+  "requestFramePermissions": []
+}
