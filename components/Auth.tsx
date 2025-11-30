@@ -29,25 +29,13 @@ export const Auth: React.FC = () => {
           password,
         });
         if (error) throw error;
-        
-        // Handle email confirmation case
+
+        // Email confirmation required
         if (data.user && !data.session) {
-          setMessage("Account created successfully! Please check your email to confirm your account before logging in.");
-          setLoading(false);
-          return;
-        }
-        
-        // Setup public user profile if signup successful and session exists
-        if (data.user && data.session) {
-          try {
-            await supabase.from('users').upsert({
-              id: data.user.id,
-              email: data.user.email,
-            });
-          } catch (profileError) {
-            console.warn('Error creating user profile:', profileError);
-            // Don't block auth if profile creation fails (it might already exist or RLS might block it)
-          }
+          setMessage(
+            'Account erstellt! Bitte bestätige deine E-Mail-Adresse, bevor du dich einloggst.'
+          );
+          setIsLogin(true);
         }
       }
     } catch (err: any) {
@@ -62,17 +50,19 @@ export const Auth: React.FC = () => {
       <div className="w-full max-w-md p-8 bg-white rounded-xl border border-gray-200 shadow-sm">
         <div className="mb-8 text-center">
           <h2 className="text-2xl font-semibold tracking-tight text-gray-900">
-            {isLogin ? 'Welcome back' : 'Create account'}
+            {isLogin ? 'Willkommen zurück' : 'Account erstellen'}
           </h2>
           <p className="mt-2 text-sm text-gray-500">
-            Enter your credentials to access LinearAI
+            {isLogin
+              ? 'Melde dich bei LinearAI an'
+              : 'Erstelle einen neuen Account'}
           </p>
         </div>
 
         <form onSubmit={handleAuth} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1.5 uppercase tracking-wide">
-              Email Address
+              E-Mail-Adresse
             </label>
             <input
               type="email"
@@ -85,7 +75,7 @@ export const Auth: React.FC = () => {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1.5 uppercase tracking-wide">
-              Password
+              Passwort
             </label>
             <input
               type="password"
@@ -102,7 +92,7 @@ export const Auth: React.FC = () => {
               {error}
             </div>
           )}
-          
+
           {message && (
             <div className="p-3 text-sm text-green-600 bg-green-50 rounded-lg border border-green-100">
               {message}
@@ -114,9 +104,12 @@ export const Auth: React.FC = () => {
             disabled={loading}
             className="w-full flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-800 text-white font-medium py-2.5 rounded-lg text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+            {loading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
               <>
-                {isLogin ? 'Sign In' : 'Sign Up'} <ArrowRight className="w-4 h-4" />
+                {isLogin ? 'Anmelden' : 'Registrieren'}{' '}
+                <ArrowRight className="w-4 h-4" />
               </>
             )}
           </button>
@@ -131,7 +124,9 @@ export const Auth: React.FC = () => {
             }}
             className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
           >
-            {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+            {isLogin
+              ? 'Noch keinen Account? Registrieren'
+              : 'Bereits registriert? Anmelden'}
           </button>
         </div>
       </div>
