@@ -330,11 +330,14 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-3">
-              <img 
-                src={agent.thumbnail} 
-                alt={agent.name} 
-                className="w-10 h-10 rounded-full object-cover border border-gray-200"
-              />
+              <div className="relative">
+                <img 
+                  src={agent.thumbnail} 
+                  alt={agent.name} 
+                  className="w-10 h-10 rounded-full object-cover border border-gray-200"
+                />
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></span>
+              </div>
               <div>
                 <h3 className="text-sm font-semibold text-gray-900">{agent.name}</h3>
                 <p className="text-xs text-gray-500">{agent.role}</p>
@@ -347,11 +350,14 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center px-4">
-              <img 
-                src={agent.thumbnail} 
-                alt={agent.name} 
-                className="w-20 h-20 rounded-full object-cover border-2 border-gray-100 mb-4"
-              />
+              <div className="relative mb-4">
+                <img 
+                  src={agent.thumbnail} 
+                  alt={agent.name} 
+                  className="w-20 h-20 rounded-full object-cover border-2 border-gray-100"
+                />
+                <span className="absolute bottom-1 right-1 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></span>
+              </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">{agent.name}</h3>
               {agent.user_instruction && (
                 <p className="text-sm text-gray-500 max-w-md">{agent.user_instruction}</p>
