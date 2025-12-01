@@ -17,6 +17,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Workspace mit Webhook URL
@@ -261,7 +262,16 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     });
 
     if (!response.ok) {
-      throw new Error(`Webhook Fehler: ${response.status}`);
+      let errorMessage = `Fehler ${response.status}`;
+      try {
+        const errorData = await response.json();
+        if (errorData.message) {
+          errorMessage = errorData.message;
+        }
+      } catch {
+        // JSON parsing fehlgeschlagen, nutze Standard-Nachricht
+      }
+      throw new Error(errorMessage);
     }
 
     return response;
@@ -273,6 +283,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     const userContent = inputValue.trim();
     setInputValue('');
     setLoading(true);
+    setError(null);
 
     try {
       // Nachricht an n8n Webhook senden
@@ -284,6 +295,8 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
 
     } catch (err) {
       console.error('Fehler beim Senden der Nachricht:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unbekannter Fehler';
+      setError(errorMessage);
       // Bei Fehler: Eingabe wiederherstellen
       setInputValue(userContent);
     } finally {
@@ -385,6 +398,13 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
           )}
           <div ref={messagesEndRef} />
         </div>
+
+        {/* Fehleranzeige */}
+        {error && (
+          <div className="mx-4 mb-2 px-4 py-2 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
 
         {/* Input */}
         <div className="p-4 bg-white border-t border-gray-100">
