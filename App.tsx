@@ -8,7 +8,7 @@ import { SetupScreen } from './components/SetupScreen';
 import { StyleGuide } from './components/StyleGuide';
 import { WorkspaceSetup } from './components/WorkspaceSetup';
 import { Agent, UserProfile } from './types';
-import { LogOut, User as UserIcon } from 'lucide-react';
+import { LogOut, User as UserIcon, Menu, X } from 'lucide-react';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
@@ -17,10 +17,12 @@ const App: React.FC = () => {
   const [initializing, setInitializing] = useState(true);
   const [checkingWorkspace, setCheckingWorkspace] = useState(false);
   const [view, setView] = useState<'home' | 'style-guide'>('home');
+  
+  // Mobile Menu State
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const hasSupabase = isSupabaseConfigured();
 
-  // Fetch user profile to check workspace membership
   const fetchUserProfile = async (userId: string) => {
     setCheckingWorkspace(true);
     try {
@@ -68,11 +70,17 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, [hasSupabase]);
 
-  // Handle workspace setup completion
   const handleWorkspaceCreated = () => {
     if (session?.user) {
       fetchUserProfile(session.user.id);
     }
+  };
+
+  // Navigation Handler mit Mobile Menu schließen
+  const handleNavigation = (newView: 'home' | 'style-guide') => {
+    setView(newView);
+    setSelectedAgent(null);
+    setMobileMenuOpen(false);
   };
 
   if (!hasSupabase) {
@@ -91,7 +99,6 @@ const App: React.FC = () => {
     return <Auth />;
   }
 
-  // Show workspace setup if user has no workspace
   if (!userProfile?.workspace_id) {
     return (
       <WorkspaceSetup
@@ -105,25 +112,21 @@ const App: React.FC = () => {
   return (
     <div className="h-screen w-screen flex flex-col bg-white">
       {/* Top Navigation Bar */}
-      <header className="h-14 border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0 bg-white z-20">
-        <div className="flex items-center gap-6">
+      <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 sm:px-6 flex-shrink-0 bg-white z-20">
+        <div className="flex items-center gap-4 sm:gap-6">
+          {/* Logo */}
           <button
-            onClick={() => {
-              setView('home');
-              setSelectedAgent(null);
-            }}
+            onClick={() => handleNavigation('home')}
             className="flex items-center gap-2 hover:opacity-80 transition-opacity"
           >
             <img src="/logo.png" alt="Logo" className="w-6 h-6 object-contain" />
             <span className="font-medium text-sm tracking-tight">LinearAI</span>
           </button>
 
+          {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-1">
             <button
-              onClick={() => {
-                setView('home');
-                setSelectedAgent(null);
-              }}
+              onClick={() => handleNavigation('home')}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 view === 'home'
                   ? 'bg-gray-100 text-gray-900'
@@ -133,10 +136,7 @@ const App: React.FC = () => {
               Home
             </button>
             <button
-              onClick={() => {
-                setView('style-guide');
-                setSelectedAgent(null);
-              }}
+              onClick={() => handleNavigation('style-guide')}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 view === 'style-guide'
                   ? 'bg-gray-100 text-gray-900'
@@ -148,9 +148,9 @@ const App: React.FC = () => {
           </nav>
         </div>
 
-        <div className="flex items-center gap-4">
-          {/* User Info mit Avatar */}
-          <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded-md border border-gray-100">
+        <div className="flex items-center gap-2 sm:gap-4">
+          {/* User Info - auf mobil nur Avatar */}
+          <div className="hidden sm:flex items-center gap-2 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded-md border border-gray-100">
             {userProfile?.avatar_url ? (
               <img 
                 src={userProfile.avatar_url} 
@@ -162,6 +162,23 @@ const App: React.FC = () => {
             )}
             <span className="max-w-[150px] truncate">{session.user.email}</span>
           </div>
+          
+          {/* Mobile: Nur Avatar */}
+          <div className="sm:hidden">
+            {userProfile?.avatar_url ? (
+              <img 
+                src={userProfile.avatar_url} 
+                alt="Avatar" 
+                className="w-7 h-7 rounded-full object-cover border border-gray-200"
+              />
+            ) : (
+              <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center">
+                <UserIcon className="w-4 h-4 text-gray-500" />
+              </div>
+            )}
+          </div>
+
+          {/* Logout Button */}
           <button
             onClick={() => supabase.auth.signOut()}
             className="text-gray-400 hover:text-gray-900 transition-colors"
@@ -169,8 +186,46 @@ const App: React.FC = () => {
           >
             <LogOut className="w-4 h-4" />
           </button>
+
+          {/* Mobile Menu Button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+          >
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
         </div>
       </header>
+
+      {/* Mobile Menu Dropdown */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-b border-gray-200 bg-white px-4 py-2 space-y-1">
+          <button
+            onClick={() => handleNavigation('home')}
+            className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+              view === 'home'
+                ? 'bg-gray-100 text-gray-900'
+                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+            }`}
+          >
+            Home
+          </button>
+          <button
+            onClick={() => handleNavigation('style-guide')}
+            className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+              view === 'style-guide'
+                ? 'bg-gray-100 text-gray-900'
+                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+            }`}
+          >
+            Design System
+          </button>
+          {/* Email auf mobil im Menü anzeigen */}
+          <div className="px-3 py-2 text-xs text-gray-400 border-t border-gray-100 mt-2 pt-2">
+            {session.user.email}
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-hidden relative">
