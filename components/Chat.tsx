@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { generateAgentResponse } from '../services/geminiService';
 import { Agent, Message, Document, Content } from '../types';
-import { Send, ArrowLeft, Loader2, FileText, ChevronRight, X, Clock } from 'lucide-react';
+import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock } from 'lucide-react';
 
 interface ChatProps {
   agent: Agent;
@@ -23,7 +23,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   const [documentContent, setDocumentContent] = useState<Content | null>(null);
   const [contentHistory, setContentHistory] = useState<Content[]>([]);
   const [loadingContent, setLoadingContent] = useState(false);
-  const [showDocPanel, setShowDocPanel] = useState(false);
 
   useEffect(() => {
     fetchMessages();
@@ -85,7 +84,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   const fetchDocumentContent = async (doc: Document) => {
     setLoadingContent(true);
     setSelectedDocument(doc);
-    setShowDocPanel(true);
 
     // Neueste Version holen
     const { data: latestData, error: latestError } = await supabase
@@ -209,21 +207,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
               </div>
             </div>
           </div>
-
-          {/* Dokumente-Button */}
-          {documents.length > 0 && (
-            <button
-              onClick={() => setShowDocPanel(!showDocPanel)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                showDocPanel 
-                  ? 'bg-gray-900 text-white' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              <span>Dokumente ({documents.length})</span>
-            </button>
-          )}
         </div>
 
         {/* Messages */}
@@ -287,18 +270,12 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         </div>
       </div>
 
-      {/* Dokumente-Panel (Sidebar) */}
-      {showDocPanel && (
-        <div className="w-96 border-l border-gray-200 flex flex-col bg-gray-50">
+      {/* Dokumente-Panel (immer sichtbar) */}
+      {documents.length > 0 && (
+        <div className="w-[40%] border-l border-gray-200 flex flex-col bg-gray-50">
           {/* Panel Header */}
-          <div className="px-4 py-3 border-b border-gray-200 bg-white flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-gray-200 bg-white">
             <h4 className="font-semibold text-sm text-gray-900">Dokumente</h4>
-            <button
-              onClick={() => setShowDocPanel(false)}
-              className="p-1 text-gray-400 hover:text-gray-900 rounded"
-            >
-              <X className="w-4 h-4" />
-            </button>
           </div>
 
           {/* Dokument ausgewählt: Inhalt anzeigen */}
