@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Agent } from '../types';
-import { MessageSquare, Sparkles, AlertCircle } from 'lucide-react';
+import { Agent, Document } from '../types';
+import { Sparkles, AlertCircle, FileText } from 'lucide-react';
 
 interface AgentGridProps {
   onSelectAgent: (agent: Agent) => void;
@@ -9,26 +9,45 @@ interface AgentGridProps {
 
 export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchAgents = async () => {
-      const { data, error } = await supabase
+    const fetchData = async () => {
+      // Agenten laden
+      const { data: agentsData, error: agentsError } = await supabase
         .from('agents')
         .select('*');
 
-      if (error) {
-        console.error('Error fetching agents:', error);
-        setError(error.message);
-      } else if (data) {
-        setAgents(data);
+      if (agentsError) {
+        console.error('Error fetching agents:', agentsError);
+        setError(agentsError.message);
+        setLoading(false);
+        return;
       }
+
+      // Dokumente laden
+      const { data: docsData, error: docsError } = await supabase
+        .from('documents')
+        .select('*');
+
+      if (docsError) {
+        console.error('Error fetching documents:', docsError);
+      }
+
+      setAgents(agentsData || []);
+      setDocuments(docsData || []);
       setLoading(false);
     };
 
-    fetchAgents();
+    fetchData();
   }, []);
+
+  // Dokumente für einen bestimmten Agenten filtern
+  const getDocumentsForAgent = (agentId: string): Document[] => {
+    return documents.filter(doc => doc.agent_ids.includes(agentId));
+  };
 
   const seedAgents = async () => {
     const demoAgents = [
@@ -109,31 +128,47 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {agents.map((agent) => (
-            <div
-              key={agent.id}
-              onClick={() => onSelectAgent(agent)}
-              className="group relative bg-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all cursor-pointer"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="relative">
-                  <img
-                    src={agent.thumbnail}
-                    alt={agent.name}
-                    className="w-12 h-12 rounded-full object-cover border border-gray-100 group-hover:scale-105 transition-transform"
-                  />
-                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
+          {agents.map((agent) => {
+            const agentDocs = getDocumentsForAgent(agent.id);
+            
+            return (
+              <div
+                key={agent.id}
+                onClick={() => onSelectAgent(agent)}
+                className="group relative bg-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all cursor-pointer"
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="relative">
+                    <img
+                      src={agent.thumbnail}
+                      alt={agent.name}
+                      className="w-12 h-12 rounded-full object-cover border border-gray-100 group-hover:scale-105 transition-transform"
+                    />
+                    <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
+                  </div>
+                  
+                  {/* Dokumente-Icons */}
+                  {agentDocs.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      {agentDocs.map((doc) => (
+                        <div
+                          key={doc.id}
+                          title={doc.name}
+                          className="p-1.5 bg-gray-50 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="p-2 bg-gray-50 rounded-lg text-gray-400 group-hover:text-gray-900 group-hover:bg-gray-100 transition-colors">
-                  <MessageSquare className="w-4 h-4" />
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-1">{agent.name}</h3>
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">{agent.role}</p>
                 </div>
               </div>
-              <div>
-                <h3 className="font-semibold text-gray-900 mb-1">{agent.name}</h3>
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">{agent.role}</p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
