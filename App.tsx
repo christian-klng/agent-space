@@ -149,8 +149,8 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-4">
-          {/* User Info - auf mobil nur Avatar */}
-          <div className="hidden sm:flex items-center gap-2 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded-md border border-gray-100">
+          {/* User Info - nur auf Desktop */}
+          <div className="hidden md:flex items-center gap-2 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded-md border border-gray-100">
             {userProfile?.avatar_url ? (
               <img 
                 src={userProfile.avatar_url} 
@@ -162,26 +162,11 @@ const App: React.FC = () => {
             )}
             <span className="max-w-[150px] truncate">{session.user.email}</span>
           </div>
-          
-          {/* Mobile: Nur Avatar */}
-          <div className="sm:hidden">
-            {userProfile?.avatar_url ? (
-              <img 
-                src={userProfile.avatar_url} 
-                alt="Avatar" 
-                className="w-7 h-7 rounded-full object-cover border border-gray-200"
-              />
-            ) : (
-              <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center">
-                <UserIcon className="w-4 h-4 text-gray-500" />
-              </div>
-            )}
-          </div>
 
-          {/* Logout Button */}
+          {/* Logout Button - nur auf Desktop */}
           <button
             onClick={() => supabase.auth.signOut()}
-            className="text-gray-400 hover:text-gray-900 transition-colors"
+            className="hidden md:block text-gray-400 hover:text-gray-900 transition-colors"
             title="Abmelden"
           >
             <LogOut className="w-4 h-4" />
@@ -220,9 +205,33 @@ const App: React.FC = () => {
           >
             Design System
           </button>
-          {/* Email auf mobil im Menü anzeigen */}
-          <div className="px-3 py-2 text-xs text-gray-400 border-t border-gray-100 mt-2 pt-2">
-            {session.user.email}
+          {/* User Info und Logout im Mobile Menü */}
+          <div className="border-t border-gray-100 mt-2 pt-2 px-3 py-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {userProfile?.avatar_url ? (
+                  <img 
+                    src={userProfile.avatar_url} 
+                    alt="Avatar" 
+                    className="w-7 h-7 rounded-full object-cover border border-gray-200"
+                  />
+                ) : (
+                  <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center">
+                    <UserIcon className="w-4 h-4 text-gray-500" />
+                  </div>
+                )}
+                <span className="text-xs text-gray-500 truncate max-w-[180px]">
+                  {session.user.email}
+                </span>
+              </div>
+              <button
+                onClick={() => supabase.auth.signOut()}
+                className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                title="Abmelden"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}
