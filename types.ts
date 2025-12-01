@@ -19,7 +19,7 @@ export interface Agent {
   name: string;
   role: string;
   thumbnail: string;
-  system_instruction: string;
+  user_instruction?: string;
   workspace_id?: string;
   workflow_id?: string;
 }

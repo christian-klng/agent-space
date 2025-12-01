@@ -55,25 +55,25 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
         name: "Sofia",
         role: "Creative Writer",
         thumbnail: "https://picsum.photos/200/200?random=1",
-        system_instruction: "You are Sofia, a creative writer who loves metaphors and vivid imagery. Help the user write stories, poems, or copy."
+        user_instruction: "Ich helfe dir beim Schreiben von Geschichten, Gedichten und kreativen Texten."
       },
       {
         name: "Marcus",
         role: "Technical Advisor",
         thumbnail: "https://picsum.photos/200/200?random=2",
-        system_instruction: "You are Marcus, a senior software engineer and technical architect. Provide concise, accurate, and scalable technical solutions."
+        user_instruction: "Ich unterstütze dich bei technischen Fragen und Software-Architektur."
       },
       {
         name: "Elena",
         role: "Life Coach",
         thumbnail: "https://picsum.photos/200/200?random=3",
-        system_instruction: "You are Elena, an empathetic life coach. Listen actively and ask guiding questions to help the user find clarity."
+        user_instruction: "Ich begleite dich auf deinem Weg zu mehr Klarheit und persönlichem Wachstum."
       },
       {
         name: "Kai",
         role: "Product Manager",
         thumbnail: "https://picsum.photos/200/200?random=4",
-        system_instruction: "You are Kai, a product manager focused on user value, prioritization, and business strategy. Critique ideas constructively."
+        user_instruction: "Ich helfe dir bei Produktstrategie, Priorisierung und Nutzerfokus."
       }
     ];
     
@@ -138,13 +138,22 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
                 className="group relative bg-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all cursor-pointer"
               >
                 <div className="flex items-start justify-between mb-4">
-                  <div className="relative">
+                  {/* Thumbnail mit Tooltip */}
+                  <div className="relative group/tooltip">
                     <img
                       src={agent.thumbnail}
                       alt={agent.name}
                       className="w-12 h-12 rounded-full object-cover border border-gray-100 group-hover:scale-105 transition-transform"
                     />
                     <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
+                    
+                    {/* Tooltip */}
+                    {agent.user_instruction && (
+                      <div className="absolute left-0 top-full mt-2 z-20 w-64 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-200">
+                        {agent.user_instruction}
+                        <div className="absolute -top-1 left-4 w-2 h-2 bg-gray-900 rotate-45"></div>
+                      </div>
+                    )}
                   </div>
                   
                   {/* Dokumente-Icons */}
