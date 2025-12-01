@@ -2,7 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { generateAgentResponse } from '../services/geminiService';
 import { Agent, Message, Document, Content } from '../types';
-import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock } from 'lucide-react';
+import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import * as Diff from 'diff';
 
 interface ChatProps {
   agent: Agent;
@@ -23,6 +26,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   const [documentContent, setDocumentContent] = useState<Content | null>(null);
   const [contentHistory, setContentHistory] = useState<Content[]>([]);
   const [loadingContent, setLoadingContent] = useState(false);
+  const [showDiff, setShowDiff] = useState(true);
 
   useEffect(() => {
     fetchMessages();
@@ -66,7 +70,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     }
   };
 
-  // Dokumente des Agenten laden
   const fetchDocuments = async () => {
     const { data, error } = await supabase
       .from('documents')
@@ -80,12 +83,10 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     }
   };
 
-  // Neuesten Inhalt eines Dokuments laden
   const fetchDocumentContent = async (doc: Document) => {
     setLoadingContent(true);
     setSelectedDocument(doc);
 
-    // Neueste Version holen
     const { data: latestData, error: latestError } = await supabase
       .from('contents')
       .select('*')
@@ -100,7 +101,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     }
     setDocumentContent(latestData || null);
 
-    // Alle Versionen für Historie holen
     const { data: historyData } = await supabase
       .from('contents')
       .select('*')
@@ -112,9 +112,64 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     setLoadingContent(false);
   };
 
-  // Bestimmte Version laden
   const loadVersion = (content: Content) => {
     setDocumentContent(content);
+  };
+
+  // Vorherige Version finden
+  const getPreviousVersion = (): Content | null => {
+    if (!documentContent || contentHistory.length < 2) return null;
+    const currentIndex = contentHistory.findIndex(c => c.id === documentContent.id);
+    if (currentIndex === -1 || currentIndex >= contentHistory.length - 1) return null;
+    return contentHistory[currentIndex + 1];
+  };
+
+  // Diff-Komponente rendern
+  const renderDiffContent = () => {
+    const previousVersion = getPreviousVersion();
+    if (!documentContent) return null;
+
+    if (!showDiff || !previousVersion) {
+      // Normales Markdown-Rendering
+      return (
+        <div className="prose prose-sm max-w-none text-gray-700">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {documentContent.content}
+          </ReactMarkdown>
+        </div>
+      );
+    }
+
+    // Diff berechnen
+    const differences = Diff.diffWords(previousVersion.content, documentContent.content);
+
+    return (
+      <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+        {differences.map((part, index) => {
+          if (part.added) {
+            return (
+              <span 
+                key={index} 
+                className="bg-green-100 text-green-800 px-0.5 rounded"
+              >
+                {part.value}
+              </span>
+            );
+          }
+          if (part.removed) {
+            return (
+              <span 
+                key={index} 
+                className="bg-red-100 text-red-800 line-through px-0.5 rounded"
+              >
+                {part.value}
+              </span>
+            );
+          }
+          return <span key={index}>{part.value}</span>;
+        })}
+      </div>
+    );
   };
 
   useEffect(() => {
@@ -181,6 +236,8 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       minute: '2-digit'
     });
   };
+
+  const previousVersion = getPreviousVersion();
 
   return (
     <div className="flex h-full bg-white">
@@ -293,10 +350,29 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                   <ArrowLeft className="w-3 h-3" />
                   Zurück zur Übersicht
                 </button>
-                <h5 className="font-semibold text-gray-900">{selectedDocument.name}</h5>
-                {selectedDocument.description && (
-                  <p className="text-xs text-gray-500 mt-1">{selectedDocument.description}</p>
-                )}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h5 className="font-semibold text-gray-900">{selectedDocument.name}</h5>
+                    {selectedDocument.description && (
+                      <p className="text-xs text-gray-500 mt-1">{selectedDocument.description}</p>
+                    )}
+                  </div>
+                  {/* Diff-Toggle */}
+                  {previousVersion && (
+                    <button
+                      onClick={() => setShowDiff(!showDiff)}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                        showDiff 
+                          ? 'bg-blue-100 text-blue-700' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      title="Änderungen anzeigen"
+                    >
+                      <GitCompare className="w-3 h-3" />
+                      Diff
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Inhalt */}
@@ -310,16 +386,21 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                     {/* Aktuelle Version */}
                     <div className="bg-white rounded-lg border border-gray-200 p-4">
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-medium text-gray-500">
-                          Version {documentContent.version}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-gray-500">
+                            Version {documentContent.version}
+                          </span>
+                          {showDiff && previousVersion && (
+                            <span className="text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                              vs. Version {previousVersion.version}
+                            </span>
+                          )}
+                        </div>
                         <span className="text-xs text-gray-400">
                           {formatDate(documentContent.created_at)}
                         </span>
                       </div>
-                      <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                        {documentContent.content}
-                      </div>
+                      {renderDiffContent()}
                     </div>
 
                     {/* Versions-Historie */}
