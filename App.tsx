@@ -114,9 +114,7 @@ const App: React.FC = () => {
             }}
             className="flex items-center gap-2 hover:opacity-80 transition-opacity"
           >
-            <div className="w-6 h-6 bg-gray-900 rounded-md flex items-center justify-center text-white font-bold text-xs">
-              L
-            </div>
+            <img src="/logo.png" alt="Logo" className="w-6 h-6 object-contain" />
             <span className="font-medium text-sm tracking-tight">LinearAI</span>
           </button>
 
