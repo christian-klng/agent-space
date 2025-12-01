@@ -333,8 +333,16 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-2">
-              <p className="text-sm">Starte eine Unterhaltung mit {agent.name}</p>
+            <div className="h-full flex flex-col items-center justify-center text-center px-4">
+              <img 
+                src={agent.thumbnail} 
+                alt={agent.name} 
+                className="w-20 h-20 rounded-full object-cover border-2 border-gray-100 mb-4"
+              />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{agent.name}</h3>
+              {agent.user_instruction && (
+                <p className="text-sm text-gray-500 max-w-md">{agent.user_instruction}</p>
+              )}
             </div>
           )}
           
