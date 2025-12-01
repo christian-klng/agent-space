@@ -26,7 +26,7 @@ export interface Message {
   id: string;
   workspace_id: string;
   agent_id: string;
-  user_id: string | null;  // null wenn Agent der Absender ist
+  user_id: string | null;
   content: string;
   role: 'user' | 'model';
   created_at: string;
@@ -35,4 +35,28 @@ export interface Message {
 export interface ChatSession {
   agentId: string;
   messages: Message[];
+}
+
+// Neue Typen für Dokumente
+
+export interface Document {
+  id: string;
+  name: string;
+  description: string | null;
+  agent_ids: string[];
+  created_at: string;
+}
+
+export interface Content {
+  id: string;
+  document_id: string;
+  workspace_id: string;
+  content: string;
+  version: number;
+  created_at: string;
+}
+
+// Hilftyp: Dokument mit aktuellem Inhalt
+export interface DocumentWithContent extends Document {
+  latestContent: Content | null;
 }
