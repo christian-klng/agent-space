@@ -349,19 +349,29 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
           {messages.map((msg) => (
             <div 
               key={msg.id} 
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : msg.role === 'system' ? 'justify-center' : 'justify-start'}`}
             >
-              <div 
-                className={`
-                  max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed
-                  ${msg.role === 'user' 
-                    ? 'bg-gray-900 text-white rounded-tr-sm' 
-                    : 'bg-gray-100 text-gray-900 rounded-tl-sm'
-                  }
-                `}
-              >
-                {msg.content}
-              </div>
+              {msg.role === 'system' ? (
+                <div className="text-xs text-gray-400 italic py-1">
+                  {msg.content}
+                </div>
+              ) : (
+                <div 
+                  className={`
+                    max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed
+                    ${msg.role === 'user' 
+                      ? 'bg-gray-900 text-white rounded-tr-sm' 
+                      : 'bg-gray-100 text-gray-900 rounded-tl-sm'
+                    }
+                  `}
+                >
+                  <div className={`prose prose-sm max-w-none ${msg.role === 'user' ? 'prose-invert' : ''}`}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {msg.content}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           {loading && (

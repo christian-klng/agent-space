@@ -30,7 +30,7 @@ export interface Message {
   agent_id: string;
   user_id: string | null;
   content: string;
-  role: 'user' | 'model';
+  role: 'user' | 'assistant' | 'system';
   created_at: string;
 }
 
