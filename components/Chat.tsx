@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { generateAgentResponse } from '../services/geminiService';
 import { Agent, Message, Document, Content } from '../types';
-import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare } from 'lucide-react';
+import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import * as Diff from 'diff';
@@ -26,13 +26,17 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   const [documentContent, setDocumentContent] = useState<Content | null>(null);
   const [contentHistory, setContentHistory] = useState<Content[]>([]);
   const [loadingContent, setLoadingContent] = useState(false);
-  const [showDiff, setShowDiff] = useState(true);
+  const [showDiff, setShowDiff] = useState(false);
+  
+  // Realtime-Indikator
+  const [contentUpdated, setContentUpdated] = useState(false);
 
+  // Realtime für Messages
   useEffect(() => {
     fetchMessages();
     fetchDocuments();
 
-    const subscription = supabase
+    const messageSubscription = supabase
       .channel(`messages:${workspaceId}:${agent.id}`)
       .on('postgres_changes', { 
         event: 'INSERT', 
@@ -51,9 +55,44 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       .subscribe();
 
     return () => {
-      supabase.removeChannel(subscription);
+      supabase.removeChannel(messageSubscription);
     };
   }, [agent.id, workspaceId]);
+
+  // Realtime für Contents (Dokumentenänderungen)
+  useEffect(() => {
+    if (!selectedDocument) return;
+
+    const contentSubscription = supabase
+      .channel(`contents:${selectedDocument.id}:${workspaceId}`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'contents',
+        filter: `document_id=eq.${selectedDocument.id}`
+      }, (payload) => {
+        const newContent = payload.new as Content;
+        // Nur für unseren Workspace
+        if (newContent.workspace_id !== workspaceId) return;
+        
+        // Neue Version zur Historie hinzufügen
+        setContentHistory(prev => {
+          if (prev.find(c => c.id === newContent.id)) return prev;
+          return [newContent, ...prev];
+        });
+        // Automatisch zur neuen Version wechseln
+        setDocumentContent(newContent);
+        
+        // Update-Animation anzeigen
+        setContentUpdated(true);
+        setTimeout(() => setContentUpdated(false), 2000);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(contentSubscription);
+    };
+  }, [selectedDocument?.id, workspaceId]);
 
   const fetchMessages = async () => {
     const { data, error } = await supabase
@@ -130,7 +169,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     if (!documentContent) return null;
 
     if (!showDiff || !previousVersion) {
-      // Normales Markdown-Rendering
       return (
         <div className="prose prose-sm max-w-none text-gray-700">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -140,7 +178,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       );
     }
 
-    // Diff berechnen
     const differences = Diff.diffWords(previousVersion.content, documentContent.content);
 
     return (
@@ -351,10 +388,19 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                   Zurück zur Übersicht
                 </button>
                 <div className="flex items-center justify-between">
-                  <div>
-                    <h5 className="font-semibold text-gray-900">{selectedDocument.name}</h5>
-                    {selectedDocument.description && (
-                      <p className="text-xs text-gray-500 mt-1">{selectedDocument.description}</p>
+                  <div className="flex items-center gap-2">
+                    <div>
+                      <h5 className="font-semibold text-gray-900">{selectedDocument.name}</h5>
+                      {selectedDocument.description && (
+                        <p className="text-xs text-gray-500 mt-1">{selectedDocument.description}</p>
+                      )}
+                    </div>
+                    {/* Realtime-Indikator */}
+                    {contentUpdated && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full animate-pulse">
+                        <Zap className="w-3 h-3" />
+                        Aktualisiert
+                      </span>
                     )}
                   </div>
                   {/* Diff-Toggle */}
@@ -384,7 +430,9 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                 ) : documentContent ? (
                   <div className="space-y-4">
                     {/* Aktuelle Version */}
-                    <div className="bg-white rounded-lg border border-gray-200 p-4">
+                    <div className={`bg-white rounded-lg border p-4 transition-all ${
+                      contentUpdated ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'
+                    }`}>
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-medium text-gray-500">
