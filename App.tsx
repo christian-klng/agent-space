@@ -149,8 +149,17 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-4">
+          {/* User Info mit Avatar */}
           <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded-md border border-gray-100">
-            <UserIcon className="w-3 h-3" />
+            {userProfile?.avatar_url ? (
+              <img 
+                src={userProfile.avatar_url} 
+                alt="Avatar" 
+                className="w-5 h-5 rounded-full object-cover"
+              />
+            ) : (
+              <UserIcon className="w-3 h-3" />
+            )}
             <span className="max-w-[150px] truncate">{session.user.email}</span>
           </div>
           <button

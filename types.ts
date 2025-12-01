@@ -10,6 +10,7 @@ export interface UserProfile {
   id: string;
   email: string;
   full_name?: string;
+  avatar_url?: string;
   workspace_id?: string;
   created_at: string;
 }
