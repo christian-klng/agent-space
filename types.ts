@@ -2,6 +2,7 @@ export interface Workspace {
   id: string;
   name: string;
   owner_id: string;
+  webhook_url?: string;
   created_at: string;
 }
 
@@ -20,6 +21,7 @@ export interface Agent {
   thumbnail: string;
   system_instruction: string;
   workspace_id?: string;
+  workflow_id?: string;
 }
 
 export interface Message {

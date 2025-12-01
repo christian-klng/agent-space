@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { generateAgentResponse } from '../services/geminiService';
-import { Agent, Message, Document, Content } from '../types';
+import { Agent, Message, Document, Content, Workspace } from '../types';
 import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -20,6 +19,9 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Workspace mit Webhook URL
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+
   // Dokumente State
   const [documents, setDocuments] = useState<Document[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
@@ -30,6 +32,25 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   
   // Realtime-Indikator
   const [contentUpdated, setContentUpdated] = useState(false);
+
+  // Workspace laden (für Webhook URL)
+  useEffect(() => {
+    fetchWorkspace();
+  }, [workspaceId]);
+
+  const fetchWorkspace = async () => {
+    const { data, error } = await supabase
+      .from('workspaces')
+      .select('*')
+      .eq('id', workspaceId)
+      .single();
+
+    if (error) {
+      console.error('Error fetching workspace:', error);
+    } else {
+      setWorkspace(data);
+    }
+  };
 
   // Realtime für Messages
   useEffect(() => {
@@ -217,6 +238,35 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Nachricht an n8n Webhook senden
+  const sendToWebhook = async (text: string) => {
+    if (!workspace?.webhook_url) {
+      throw new Error('Keine Webhook URL konfiguriert');
+    }
+
+    const payload = {
+      text: text,
+      user_id: userId,
+      agent_id: agent.id,
+      agent_workflow_id: agent.workflow_id || null,
+      workspace_id: workspaceId
+    };
+
+    const response = await fetch(workspace.webhook_url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Webhook Fehler: ${response.status}`);
+    }
+
+    return response;
+  };
+
   const handleSend = async () => {
     if (!inputValue.trim() || loading) return;
 
@@ -225,40 +275,17 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     setLoading(true);
 
     try {
-      const { error: userError } = await supabase
-        .from('messages')
-        .insert({
-          workspace_id: workspaceId,
-          agent_id: agent.id,
-          user_id: userId,
-          content: userContent,
-          role: 'user'
-        });
+      // Nachricht an n8n Webhook senden
+      // n8n kümmert sich um das Speichern in Supabase
+      await sendToWebhook(userContent);
 
-      if (userError) throw userError;
-
-      const responseText = await generateAgentResponse(
-        messages, 
-        userContent,
-        agent.system_instruction
-      );
-
-      const { error: aiError } = await supabase
-        .from('messages')
-        .insert({
-          workspace_id: workspaceId,
-          agent_id: agent.id,
-          user_id: null,
-          content: responseText,
-          role: 'model'
-        });
-
-      if (aiError) throw aiError;
-
-      await fetchMessages();
+      // Nachrichten werden über Realtime Subscription aktualisiert
+      // (n8n schreibt in die messages Tabelle)
 
     } catch (err) {
-      console.error('Failed to send message:', err);
+      console.error('Fehler beim Senden der Nachricht:', err);
+      // Bei Fehler: Eingabe wiederherstellen
+      setInputValue(userContent);
     } finally {
       setLoading(false);
     }
