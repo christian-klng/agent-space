@@ -87,6 +87,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
 
   // Dokumente State
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [documentLastUpdated, setDocumentLastUpdated] = useState<Record<string, string>>({});
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [documentContent, setDocumentContent] = useState<Content | null>(null);
   const [contentHistory, setContentHistory] = useState<Content[]>([]);
@@ -172,6 +173,12 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         });
         setDocumentContent(newContent);
         
+        // Letztes Update-Datum aktualisieren
+        setDocumentLastUpdated(prev => ({
+          ...prev,
+          [newContent.document_id]: newContent.created_at
+        }));
+        
         setContentUpdated(true);
         setTimeout(() => setContentUpdated(false), 2000);
       })
@@ -209,6 +216,28 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       console.error('Error fetching documents:', error);
     } else {
       setDocuments(data || []);
+      
+      // Letztes Update-Datum für jedes Dokument laden
+      if (data && data.length > 0) {
+        const lastUpdatedMap: Record<string, string> = {};
+        
+        for (const doc of data) {
+          const { data: contentData } = await supabase
+            .from('contents')
+            .select('created_at')
+            .eq('document_id', doc.id)
+            .eq('workspace_id', workspaceId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          
+          if (contentData) {
+            lastUpdatedMap[doc.id] = contentData.created_at;
+          }
+        }
+        
+        setDocumentLastUpdated(lastUpdatedMap);
+      }
     }
   };
 
@@ -382,6 +411,25 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const formatRelativeDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHours = Math.floor(diffMin / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    const diffWeeks = Math.floor(diffDays / 7);
+    const diffMonths = Math.floor(diffDays / 30);
+
+    if (diffSec < 60) return 'Gerade eben';
+    if (diffMin < 60) return `Vor ${diffMin} ${diffMin === 1 ? 'Minute' : 'Minuten'}`;
+    if (diffHours < 24) return `Vor ${diffHours} ${diffHours === 1 ? 'Stunde' : 'Stunden'}`;
+    if (diffDays < 7) return `Vor ${diffDays} ${diffDays === 1 ? 'Tag' : 'Tagen'}`;
+    if (diffWeeks < 4) return `Vor ${diffWeeks} ${diffWeeks === 1 ? 'Woche' : 'Wochen'}`;
+    return `Vor ${diffMonths} ${diffMonths === 1 ? 'Monat' : 'Monaten'}`;
   };
 
   const previousVersion = getPreviousVersion();
@@ -678,9 +726,9 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                   </div>
                   <div className="min-w-0">
                     <h5 className="font-medium text-sm text-gray-900 truncate">{doc.name}</h5>
-                    {doc.description && (
-                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
-                        {doc.description}
+                    {documentLastUpdated[doc.id] && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {formatRelativeDate(documentLastUpdated[doc.id])}
                       </p>
                     )}
                   </div>
