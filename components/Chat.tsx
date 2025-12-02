@@ -479,7 +479,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       {!isAtBottom && messages.length > 0 && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-20 right-4 sm:right-6 p-2 bg-white border border-gray-200 rounded-full shadow-md text-gray-500 hover:text-gray-900 hover:border-gray-300 transition-all z-10"
+          className="absolute bottom-24 right-4 sm:right-6 p-2 bg-white border border-gray-200 rounded-full shadow-md text-gray-500 hover:text-gray-900 hover:border-gray-300 transition-all z-10"
           title="Zum Ende springen"
         >
           <ChevronDown className="w-4 h-4" />
