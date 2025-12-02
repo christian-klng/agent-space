@@ -24,24 +24,39 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   // Scroll-Position State
   const [isAtBottom, setIsAtBottom] = useState(true);
   const scrollPositionKey = `chat-scroll-${agent.id}`;
+  const hasRestoredScroll = useRef(false);
 
-  // Scroll-Position speichern bei Verlassen
-  useEffect(() => {
+  // Scroll-Position speichern
+  const saveScrollPosition = () => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      sessionStorage.setItem(scrollPositionKey, String(container.scrollTop));
+    }
+  };
+
+  // Scroll-Position wiederherstellen
+  const restoreScrollPosition = () => {
+    if (hasRestoredScroll.current) return;
+    
     const container = messagesContainerRef.current;
     if (!container) return;
+    
+    const savedPosition = sessionStorage.getItem(scrollPositionKey);
+    if (savedPosition) {
+      container.scrollTop = parseInt(savedPosition, 10);
+      hasRestoredScroll.current = true;
+      checkIfAtBottom();
+    }
+  };
 
-    const saveScrollPosition = () => {
-      sessionStorage.setItem(scrollPositionKey, String(container.scrollTop));
-    };
-
-    // Bei visibility change speichern (Tab-Wechsel, App minimieren)
+  // Event Listener für Speichern
+  useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
         saveScrollPosition();
       }
     };
 
-    // Bei beforeunload speichern (Seite verlassen)
     window.addEventListener('beforeunload', saveScrollPosition);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
@@ -52,22 +67,16 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     };
   }, [scrollPositionKey]);
 
-  // Scroll-Position wiederherstellen nach Messages laden
+  // Wiederherstellen nach Messages laden
   useEffect(() => {
-    if (messages.length === 0) return;
-    
-    const container = messagesContainerRef.current;
-    if (!container) return;
-
-    const savedPosition = sessionStorage.getItem(scrollPositionKey);
-    if (savedPosition) {
-      // Kurz warten bis DOM gerendert ist
-      requestAnimationFrame(() => {
-        container.scrollTop = parseInt(savedPosition, 10);
-        checkIfAtBottom();
-      });
+    if (messages.length > 0 && !hasRestoredScroll.current) {
+      // Warten bis DOM aktualisiert ist
+      const timer = setTimeout(() => {
+        restoreScrollPosition();
+      }, 50);
+      return () => clearTimeout(timer);
     }
-  }, [messages.length > 0]); // Nur einmal nach erstem Laden
+  }, [messages]);
 
   // Mobile Tab State: 'chat' oder 'documents'
   const [mobileTab, setMobileTab] = useState<'chat' | 'documents'>('chat');
@@ -378,7 +387,10 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center gap-3 sm:gap-4">
           <button 
-            onClick={onBack}
+            onClick={() => {
+              saveScrollPosition();
+              onBack();
+            }}
             className="p-2 -ml-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all"
           >
             <ArrowLeft className="w-5 h-5" />
