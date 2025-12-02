@@ -64,20 +64,25 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     const messageSubscription = supabase
       .channel(`messages:${workspaceId}:${agent.id}`)
       .on('postgres_changes', { 
-        event: 'INSERT', 
+        event: '*', 
         schema: 'public', 
-        table: 'messages',
-        filter: `workspace_id=eq.${workspaceId}`
+        table: 'messages'
       }, (payload) => {
         const newMessage = payload.new as Message;
-        if (newMessage.agent_id === agent.id) {
+        // Manuell filtern (zuverlässiger als Supabase Filter)
+        if (newMessage.workspace_id !== workspaceId) return;
+        if (newMessage.agent_id !== agent.id) return;
+        
+        if (payload.eventType === 'INSERT') {
           setMessages(prev => {
             if (prev.find(m => m.id === newMessage.id)) return prev;
             return [...prev, newMessage];
           });
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Messages Realtime Status:', status);
+      });
 
     return () => {
       supabase.removeChannel(messageSubscription);
@@ -91,12 +96,15 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     const contentSubscription = supabase
       .channel(`contents:${selectedDocument.id}:${workspaceId}`)
       .on('postgres_changes', { 
-        event: 'INSERT', 
+        event: '*', 
         schema: 'public', 
-        table: 'contents',
-        filter: `document_id=eq.${selectedDocument.id}`
+        table: 'contents'
       }, (payload) => {
+        if (payload.eventType !== 'INSERT') return;
+        
         const newContent = payload.new as Content;
+        // Manuell filtern
+        if (newContent.document_id !== selectedDocument.id) return;
         if (newContent.workspace_id !== workspaceId) return;
         
         setContentHistory(prev => {
@@ -108,7 +116,9 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         setContentUpdated(true);
         setTimeout(() => setContentUpdated(false), 2000);
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Contents Realtime Status:', status);
+      });
 
     return () => {
       supabase.removeChannel(contentSubscription);
