@@ -23,6 +23,51 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   
   // Scroll-Position State
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const scrollPositionKey = `chat-scroll-${agent.id}`;
+
+  // Scroll-Position speichern bei Verlassen
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const saveScrollPosition = () => {
+      sessionStorage.setItem(scrollPositionKey, String(container.scrollTop));
+    };
+
+    // Bei visibility change speichern (Tab-Wechsel, App minimieren)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        saveScrollPosition();
+      }
+    };
+
+    // Bei beforeunload speichern (Seite verlassen)
+    window.addEventListener('beforeunload', saveScrollPosition);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      saveScrollPosition();
+      window.removeEventListener('beforeunload', saveScrollPosition);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [scrollPositionKey]);
+
+  // Scroll-Position wiederherstellen nach Messages laden
+  useEffect(() => {
+    if (messages.length === 0) return;
+    
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const savedPosition = sessionStorage.getItem(scrollPositionKey);
+    if (savedPosition) {
+      // Kurz warten bis DOM gerendert ist
+      requestAnimationFrame(() => {
+        container.scrollTop = parseInt(savedPosition, 10);
+        checkIfAtBottom();
+      });
+    }
+  }, [messages.length > 0]); // Nur einmal nach erstem Laden
 
   // Mobile Tab State: 'chat' oder 'documents'
   const [mobileTab, setMobileTab] = useState<'chat' | 'documents'>('chat');
@@ -462,7 +507,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
 
   // === RENDER: Dokumente-Bereich ===
   const renderDocuments = () => (
-    <div className="flex-1 flex flex-col bg-gray-50">
+    <div className="flex-1 flex flex-col bg-gray-50 overflow-hidden min-h-0">
       {/* Panel Header */}
       <div className="px-4 py-3 border-b border-gray-200 bg-white">
         <h4 className="font-semibold text-sm text-gray-900">Dokumente</h4>
@@ -470,7 +515,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
 
       {/* Dokument ausgewählt: Inhalt anzeigen */}
       {selectedDocument ? (
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           {/* Dokument-Header */}
           <div className="px-4 py-3 bg-white border-b border-gray-200">
             <button
@@ -516,7 +561,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
           </div>
 
           {/* Inhalt */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-4 min-h-0">
             {loadingContent ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
@@ -588,7 +633,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         </div>
       ) : (
         /* Dokumenten-Liste */
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
           {documents.map((doc) => (
             <button
               key={doc.id}
