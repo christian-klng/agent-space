@@ -160,7 +160,7 @@ const App: React.FC = () => {
             ) : (
               <UserIcon className="w-3 h-3" />
             )}
-            <span className="max-w-[150px] truncate">{session.user.email}</span>
+            <span className="max-w-[150px] truncate">{userProfile?.full_name || session.user.email}</span>
           </div>
 
           {/* Logout Button - nur auf Desktop */}
@@ -221,7 +221,7 @@ const App: React.FC = () => {
                   </div>
                 )}
                 <span className="text-xs text-gray-500 truncate max-w-[180px]">
-                  {session.user.email}
+                  {userProfile?.full_name || session.user.email}
                 </span>
               </div>
               <button

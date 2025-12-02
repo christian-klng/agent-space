@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { Agent, Message, Document, Content, Workspace } from '../types';
-import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle } from 'lucide-react';
+import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle, ChevronDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import * as Diff from 'diff';
@@ -19,6 +19,10 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Scroll-Position State
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   // Mobile Tab State: 'chat' oder 'documents'
   const [mobileTab, setMobileTab] = useState<'chat' | 'documents'>('chat');
@@ -238,9 +242,15 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     );
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  // Prüfen ob User ganz unten ist
+  const checkIfAtBottom = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    
+    const threshold = 100; // Pixel-Toleranz
+    const isBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+    setIsAtBottom(isBottom);
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -318,7 +328,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
 
   // === RENDER: Chat-Bereich ===
   const renderChat = () => (
-    <div className="flex-1 flex flex-col min-w-0">
+    <div className="flex-1 flex flex-col min-w-0 relative">
       {/* Header */}
       <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center gap-3 sm:gap-4">
@@ -346,7 +356,11 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <div 
+        ref={messagesContainerRef}
+        onScroll={checkIfAtBottom}
+        className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6 relative"
+      >
         {messages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-center px-4">
             <div className="relative mb-4">
@@ -403,6 +417,17 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Scroll to Bottom Button */}
+      {!isAtBottom && messages.length > 0 && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-20 right-4 sm:right-6 p-2 bg-white border border-gray-200 rounded-full shadow-md text-gray-500 hover:text-gray-900 hover:border-gray-300 transition-all z-10"
+          title="Zum Ende springen"
+        >
+          <ChevronDown className="w-4 h-4" />
+        </button>
+      )}
 
       {/* Fehleranzeige */}
       {error && (
@@ -647,7 +672,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
 
           {/* Dokumente-Panel (Desktop) */}
           {hasDocuments && (
-            <div className="w-[40%] max-w-md border-l border-gray-200 flex flex-col">
+            <div className="w-[40%] max-w-md border-l border-gray-200 flex flex-col overflow-hidden">
               {renderDocuments()}
             </div>
           )}
