@@ -2,7 +2,7 @@
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>LinearAI</title>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
@@ -40,6 +40,18 @@
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
+      
+      /* iOS Safe Area Support */
+      .safe-area-bottom {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      
+      /* Dynamic Viewport Height für iOS */
+      .h-screen-safe {
+        height: 100vh;
+        height: 100dvh;
+      }
+      
       ::-webkit-scrollbar {
         width: 6px;
         height: 6px;
@@ -56,7 +68,7 @@
       }
     </style>
   </head>
-  <body class="bg-white text-gray-900 h-screen w-screen overflow-hidden">
+  <body class="bg-white text-gray-900 h-screen-safe w-screen overflow-hidden">
     <div id="root" class="h-full w-full"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

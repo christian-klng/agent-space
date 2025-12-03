@@ -110,7 +110,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-white">
+    <div className="h-full w-full flex flex-col bg-white">
       {/* Top Navigation Bar */}
       <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 sm:px-6 flex-shrink-0 bg-white z-20">
         <div className="flex items-center gap-4 sm:gap-6">

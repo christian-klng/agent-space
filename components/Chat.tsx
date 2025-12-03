@@ -549,7 +549,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       )}
 
       {/* Input */}
-      <div className="p-3 sm:p-4 bg-white border-t border-gray-100">
+      <div className="p-3 sm:p-4 bg-white border-t border-gray-100 safe-area-bottom">
         <div className="max-w-4xl mx-auto relative flex items-end">
           <textarea
             ref={textareaRef}
