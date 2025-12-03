@@ -120,7 +120,7 @@ const App: React.FC = () => {
             className="flex items-center gap-2 hover:opacity-80 transition-opacity"
           >
             <img src="/logo.png" alt="Logo" className="w-6 h-6 object-contain" />
-            <span className="font-medium text-sm tracking-tight">LinearAI</span>
+            <span className="font-medium text-sm tracking-tight">Human in the Loop</span>
           </button>
 
           {/* Desktop Navigation */}
