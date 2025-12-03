@@ -27,6 +27,55 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   const scrollPositionKey = `chat-scroll-${agent.id}`;
   const hasRestoredScroll = useRef(false);
 
+  // Ungelesene Nachrichten State
+  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+  const lastReadAtRef = useRef<string | null>(null);
+
+  // Lesestatus aktualisieren
+  const updateReadStatus = async () => {
+    const { error } = await supabase
+      .from('message_read_status')
+      .upsert({
+        user_id: userId,
+        agent_id: agent.id,
+        workspace_id: workspaceId,
+        last_read_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id,agent_id,workspace_id'
+      });
+
+    if (error) {
+      console.error('Error updating read status:', error);
+    }
+    
+    lastReadAtRef.current = new Date().toISOString();
+    setHasUnreadMessages(false);
+  };
+
+  // Lesestatus laden beim Öffnen
+  useEffect(() => {
+    const loadReadStatus = async () => {
+      const { data } = await supabase
+        .from('message_read_status')
+        .select('last_read_at')
+        .eq('user_id', userId)
+        .eq('agent_id', agent.id)
+        .eq('workspace_id', workspaceId)
+        .single();
+
+      lastReadAtRef.current = data?.last_read_at || null;
+    };
+
+    loadReadStatus();
+  }, [userId, agent.id, workspaceId]);
+
+  // Lesestatus aktualisieren wenn am Ende gescrollt
+  useEffect(() => {
+    if (isAtBottom && messages.length > 0) {
+      updateReadStatus();
+    }
+  }, [isAtBottom, messages.length]);
+
   // Scroll-Position speichern
   const saveScrollPosition = () => {
     const container = messagesContainerRef.current;
@@ -138,6 +187,11 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
             if (prev.find(m => m.id === newMessage.id)) return prev;
             return [...prev, newMessage];
           });
+          
+          // Wenn Assistant-Nachricht und User nicht am Ende: als ungelesen markieren
+          if (newMessage.role === 'assistant' && !isAtBottom) {
+            setHasUnreadMessages(true);
+          }
         }
       })
       .subscribe((status) => {
@@ -334,10 +388,18 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     const threshold = 100; // Pixel-Toleranz
     const isBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
     setIsAtBottom(isBottom);
+    
+    // Wenn am Ende angekommen, Ungelesen-Status zurücksetzen
+    if (isBottom && hasUnreadMessages) {
+      setHasUnreadMessages(false);
+      updateReadStatus();
+    }
   };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setHasUnreadMessages(false);
+    updateReadStatus();
   };
 
   const sendToWebhook = async (text: string) => {
@@ -530,12 +592,16 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Scroll to Bottom Button */}
+      {/* Scroll to Bottom Button - Grün und blinkend bei ungelesenen Nachrichten */}
       {!isAtBottom && messages.length > 0 && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-24 right-4 sm:right-6 p-2 bg-white border border-gray-200 rounded-full shadow-md text-gray-500 hover:text-gray-900 hover:border-gray-300 transition-all z-10"
-          title="Zum Ende springen"
+          className={`absolute bottom-24 right-4 sm:right-6 p-2 rounded-full shadow-md transition-all z-10 ${
+            hasUnreadMessages
+              ? 'bg-green-500 border border-green-400 text-white animate-pulse hover:bg-green-600'
+              : 'bg-white border border-gray-200 text-gray-500 hover:text-gray-900 hover:border-gray-300'
+          }`}
+          title={hasUnreadMessages ? 'Neue Nachrichten' : 'Zum Ende springen'}
         >
           <ChevronDown className="w-4 h-4" />
         </button>

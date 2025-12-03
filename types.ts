@@ -63,3 +63,12 @@ export interface Content {
 export interface DocumentWithContent extends Document {
   latestContent: Content | null;
 }
+
+// Lesestatus für Nachrichten
+export interface MessageReadStatus {
+  id: string;
+  user_id: string;
+  agent_id: string;
+  workspace_id: string;
+  last_read_at: string;
+}

@@ -1,46 +1,108 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Agent, Document } from '../types';
-import { Sparkles, AlertCircle, FileText } from 'lucide-react';
+import { Agent, Document, MessageReadStatus } from '../types';
+import { Sparkles, AlertCircle, FileText, Mail } from 'lucide-react';
 
 interface AgentGridProps {
   onSelectAgent: (agent: Agent) => void;
+  workspaceId: string;
+  userId: string;
 }
 
-export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
+export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent, workspaceId, userId }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Ungelesene Nachrichten pro Agent
+  const [unreadAgents, setUnreadAgents] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    const fetchData = async () => {
-      const { data: agentsData, error: agentsError } = await supabase
-        .from('agents')
-        .select('*');
-
-      if (agentsError) {
-        console.error('Error fetching agents:', agentsError);
-        setError(agentsError.message);
-        setLoading(false);
-        return;
-      }
-
-      const { data: docsData, error: docsError } = await supabase
-        .from('documents')
-        .select('*');
-
-      if (docsError) {
-        console.error('Error fetching documents:', docsError);
-      }
-
-      setAgents(agentsData || []);
-      setDocuments(docsData || []);
-      setLoading(false);
-    };
-
     fetchData();
-  }, []);
+  }, [workspaceId, userId]);
+
+  // Realtime für neue Nachrichten
+  useEffect(() => {
+    if (!workspaceId) return;
+
+    const subscription = supabase
+      .channel(`messages-unread:${workspaceId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages'
+      }, (payload) => {
+        const newMessage = payload.new as any;
+        // Nur Assistant-Nachrichten als ungelesen markieren
+        if (newMessage.workspace_id === workspaceId && newMessage.role === 'assistant') {
+          setUnreadAgents(prev => new Set([...prev, newMessage.agent_id]));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, [workspaceId]);
+
+  const fetchData = async () => {
+    // Agenten laden
+    const { data: agentsData, error: agentsError } = await supabase
+      .from('agents')
+      .select('*');
+
+    if (agentsError) {
+      console.error('Error fetching agents:', agentsError);
+      setError(agentsError.message);
+      setLoading(false);
+      return;
+    }
+
+    // Dokumente laden
+    const { data: docsData, error: docsError } = await supabase
+      .from('documents')
+      .select('*');
+
+    if (docsError) {
+      console.error('Error fetching documents:', docsError);
+    }
+
+    // Lesestatus laden
+    const { data: readStatusData } = await supabase
+      .from('message_read_status')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('workspace_id', workspaceId);
+
+    // Ungelesene Nachrichten pro Agent ermitteln
+    const unread = new Set<string>();
+    
+    if (agentsData) {
+      for (const agent of agentsData) {
+        const readStatus = readStatusData?.find(rs => rs.agent_id === agent.id);
+        const lastReadAt = readStatus?.last_read_at || '1970-01-01';
+
+        // Prüfen ob es neuere Assistant-Nachrichten gibt
+        const { count } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('workspace_id', workspaceId)
+          .eq('agent_id', agent.id)
+          .eq('role', 'assistant')
+          .gt('created_at', lastReadAt);
+
+        if (count && count > 0) {
+          unread.add(agent.id);
+        }
+      }
+    }
+
+    setAgents(agentsData || []);
+    setDocuments(docsData || []);
+    setUnreadAgents(unread);
+    setLoading(false);
+  };
 
   const getDocumentsForAgent = (agentId: string): Document[] => {
     return documents.filter(doc => doc.agent_ids.includes(agentId));
@@ -81,6 +143,16 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
     } else {
       window.location.reload();
     }
+  };
+
+  const handleSelectAgent = (agent: Agent) => {
+    // Ungelesen-Status entfernen wenn Agent ausgewählt wird
+    setUnreadAgents(prev => {
+      const next = new Set(prev);
+      next.delete(agent.id);
+      return next;
+    });
+    onSelectAgent(agent);
   };
 
   if (loading) {
@@ -131,11 +203,12 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {agents.map((agent) => {
             const agentDocs = getDocumentsForAgent(agent.id);
+            const hasUnread = unreadAgents.has(agent.id);
             
             return (
               <div
                 key={agent.id}
-                onClick={() => onSelectAgent(agent)}
+                onClick={() => handleSelectAgent(agent)}
                 className="group relative bg-white border border-gray-200 rounded-xl p-4 sm:p-5 hover:border-gray-300 hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all cursor-pointer active:scale-[0.98]"
               >
                 <div className="flex items-start justify-between mb-3 sm:mb-4">
@@ -157,25 +230,36 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent }) => {
                     )}
                   </div>
                   
-                  {/* Dokumente-Icons */}
-                  {agentDocs.length > 0 && (
-                    <div className="flex items-center gap-1">
-                      {agentDocs.slice(0, 3).map((doc) => (
-                        <div
-                          key={doc.id}
-                          title={doc.name}
-                          className="p-1 sm:p-1.5 bg-gray-50 rounded-md text-gray-400"
-                        >
-                          <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
-                        </div>
-                      ))}
-                      {agentDocs.length > 3 && (
-                        <span className="text-xs text-gray-400 ml-1">
-                          +{agentDocs.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  {/* Rechte Seite: Ungelesen-Badge oder Dokumente-Icons */}
+                  <div className="flex items-center gap-2">
+                    {/* Ungelesene Nachricht Badge */}
+                    {hasUnread && (
+                      <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-full">
+                        <Mail className="w-3.5 h-3.5 text-green-600" />
+                        <span className="text-xs font-medium text-green-700">Neue Nachricht</span>
+                      </div>
+                    )}
+                    
+                    {/* Dokumente-Icons (nur wenn keine ungelesene Nachricht) */}
+                    {!hasUnread && agentDocs.length > 0 && (
+                      <div className="flex items-center gap-1">
+                        {agentDocs.slice(0, 3).map((doc) => (
+                          <div
+                            key={doc.id}
+                            title={doc.name}
+                            className="p-1 sm:p-1.5 bg-gray-50 rounded-md text-gray-400"
+                          >
+                            <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
+                          </div>
+                        ))}
+                        {agentDocs.length > 3 && (
+                          <span className="text-xs text-gray-400 ml-1">
+                            +{agentDocs.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900 mb-0.5 sm:mb-1">{agent.name}</h3>

@@ -253,7 +253,11 @@ const App: React.FC = () => {
           </div>
         ) : (
           <div className="h-full overflow-y-auto">
-            <AgentGrid onSelectAgent={setSelectedAgent} />
+            <AgentGrid 
+              onSelectAgent={setSelectedAgent}
+              workspaceId={userProfile.workspace_id}
+              userId={session.user.id}
+            />
           </div>
         )}
       </main>
