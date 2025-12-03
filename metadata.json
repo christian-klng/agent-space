@@ -1,5 +1,5 @@
 {
-  "name": "LinearAI",
-  "description": "A Linear-style AI agent platform featuring Supabase authentication, real-time chat, and Google Gemini integration.",
+  "name": "Human in the Loop",
+  "description": "KI-gestützte Agenten-Plattform mit Echtzeit-Chat und intelligenter Dokumentenverarbeitung.",
   "requestFramePermissions": []
 }
