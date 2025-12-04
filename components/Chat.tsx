@@ -158,6 +158,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     columnKey: string;
   } | null>(null);
   const editInputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const isNavigatingRef = useRef(false); // Verhindert onBlur während Tab-Navigation
 
   // Resizable Panel State
   const [panelWidth, setPanelWidth] = useState(() => {
@@ -618,6 +619,133 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     cancelEditing();
   };
 
+  // Nächste/Vorherige Zelle finden
+  const getAdjacentCell = (direction: 'next' | 'prev'): { rowId: string; columnKey: string } | null => {
+    if (!editingCell || !selectedDocument?.table_schema) return null;
+    
+    const columns = selectedDocument.table_schema.columns;
+    const currentRowIndex = tableEntries.findIndex(e => e.row_id === editingCell.rowId);
+    const currentColIndex = columns.findIndex(c => c.key === editingCell.columnKey);
+    
+    if (currentRowIndex === -1 || currentColIndex === -1) return null;
+    
+    if (direction === 'next') {
+      // Nächste Spalte in der gleichen Zeile
+      if (currentColIndex < columns.length - 1) {
+        return {
+          rowId: editingCell.rowId,
+          columnKey: columns[currentColIndex + 1].key
+        };
+      }
+      // Erste Spalte der nächsten Zeile
+      if (currentRowIndex < tableEntries.length - 1) {
+        return {
+          rowId: tableEntries[currentRowIndex + 1].row_id,
+          columnKey: columns[0].key
+        };
+      }
+    } else {
+      // Vorherige Spalte in der gleichen Zeile
+      if (currentColIndex > 0) {
+        return {
+          rowId: editingCell.rowId,
+          columnKey: columns[currentColIndex - 1].key
+        };
+      }
+      // Letzte Spalte der vorherigen Zeile
+      if (currentRowIndex > 0) {
+        return {
+          rowId: tableEntries[currentRowIndex - 1].row_id,
+          columnKey: columns[columns.length - 1].key
+        };
+      }
+    }
+    
+    return null;
+  };
+
+  // Speichern und zur nächsten Zelle wechseln
+  const saveCellAndNavigate = async (direction: 'next' | 'prev' | null) => {
+    if (!editingCell || !selectedDocument) return;
+    
+    // Flag setzen um onBlur zu blockieren bei Tab-Navigation
+    if (direction !== null) {
+      isNavigatingRef.current = true;
+    }
+    
+    const { rowId, columnKey } = editingCell;
+    const currentEntry = tableEntries.find(e => e.row_id === rowId);
+    
+    // Nächste Zelle vor dem Speichern ermitteln
+    const nextCell = direction ? getAdjacentCell(direction) : null;
+    
+    if (!currentEntry) {
+      cancelEditing();
+      isNavigatingRef.current = false;
+      return;
+    }
+
+    const oldValue = currentEntry.data[columnKey]?.toString() || '';
+    
+    // Nur speichern wenn sich was geändert hat
+    if (oldValue !== editValue) {
+      setSavingCell(true);
+
+      const newData = {
+        ...currentEntry.data,
+        [columnKey]: editValue
+      };
+
+      const { error } = await supabase.from('table_entries').insert({
+        document_id: currentEntry.document_id,
+        workspace_id: workspaceId,
+        row_id: rowId,
+        data: newData,
+        version: currentEntry.version + 1,
+        position: currentEntry.position
+      });
+
+      if (error) {
+        console.error('Error saving cell:', error);
+      } else {
+        // Lokalen State aktualisieren
+        setTableEntries(prev => prev.map(e => 
+          e.row_id === rowId 
+            ? { ...e, data: newData, version: e.version + 1 }
+            : e
+        ));
+        
+        // Erfolgs-Feedback
+        setSavedCell({ rowId, columnKey });
+        setTimeout(() => setSavedCell(null), 1000);
+      }
+
+      setSavingCell(false);
+    }
+
+    // Editing beenden
+    setEditingCell(null);
+    setEditValue('');
+    
+    // Zur nächsten Zelle navigieren
+    if (nextCell) {
+      const nextEntry = tableEntries.find(e => e.row_id === nextCell.rowId);
+      const nextValue = nextEntry?.data[nextCell.columnKey];
+      setTimeout(() => {
+        startEditing(nextCell.rowId, nextCell.columnKey, nextValue);
+        isNavigatingRef.current = false;
+      }, 50);
+    } else {
+      isNavigatingRef.current = false;
+    }
+  };
+
+  // onBlur Handler - ignoriert wenn Tab-Navigation aktiv
+  const handleCellBlur = () => {
+    if (isNavigatingRef.current) return;
+    saveCellAndNavigate(null);
+  };
+
   const handleEditKeyDown = (e: React.KeyboardEvent, columnType: string) => {
     if (e.key === 'Escape') {
       cancelEditing();
@@ -625,14 +753,14 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       // Bei textarea: Shift+Enter für neue Zeile, Enter allein zum Speichern
       if (columnType === 'textarea' && !e.shiftKey) {
         e.preventDefault();
-        saveCell();
+        saveCellAndNavigate(null);
       } else if (columnType !== 'textarea') {
         e.preventDefault();
-        saveCell();
+        saveCellAndNavigate(null);
       }
     } else if (e.key === 'Tab') {
       e.preventDefault();
-      saveCell();
+      saveCellAndNavigate(e.shiftKey ? 'prev' : 'next');
     }
   };
 
@@ -699,7 +827,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
             ref={editInputRef as React.RefObject<HTMLTextAreaElement>}
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
-            onBlur={saveCell}
+            onBlur={handleCellBlur}
             onKeyDown={(e) => handleEditKeyDown(e, column.type)}
             className="w-full min-h-[60px] px-2 py-1 text-sm border border-blue-400 rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 resize-y"
             disabled={savingCell}
@@ -713,7 +841,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
           type={column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'}
           value={editValue}
           onChange={(e) => setEditValue(e.target.value)}
-          onBlur={saveCell}
+          onBlur={handleCellBlur}
           onKeyDown={(e) => handleEditKeyDown(e, column.type)}
           className="w-full px-2 py-1 text-sm border border-blue-400 rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
           disabled={savingCell}
