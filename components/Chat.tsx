@@ -158,9 +158,60 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     columnKey: string;
   } | null>(null);
   const editInputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+
+  // Resizable Panel State
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const saved = localStorage.getItem('documents-panel-width');
+    return saved ? parseInt(saved, 10) : 400;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   
   // Realtime-Indikator
   const [contentUpdated, setContentUpdated] = useState(false);
+
+  // Resizer Event Handlers
+  const startResizing = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing || !containerRef.current) return;
+      
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newWidth = containerRect.right - e.clientX;
+      
+      // Min 250px, Max 60% des Containers
+      const minWidth = 250;
+      const maxWidth = containerRect.width * 0.6;
+      const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+      
+      setPanelWidth(clampedWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isResizing) {
+        setIsResizing(false);
+        localStorage.setItem('documents-panel-width', String(panelWidth));
+      }
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, panelWidth]);
 
   // Workspace laden (für Webhook URL)
   useEffect(() => {
@@ -1298,15 +1349,31 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         </div>
 
         {/* DESKTOP: Side-by-Side Layout */}
-        <div className="hidden lg:flex flex-1 overflow-hidden">
+        <div ref={containerRef} className="hidden lg:flex flex-1 overflow-hidden relative">
           {/* Chat-Bereich */}
           {renderChat()}
 
           {/* Dokumente-Panel (Desktop) */}
           {hasDocuments && (
-            <div className="w-[40%] max-w-md border-l border-gray-200 flex flex-col overflow-hidden">
-              {renderDocuments()}
-            </div>
+            <>
+              {/* Resizer Handle */}
+              <div
+                onMouseDown={startResizing}
+                className={`
+                  w-1 hover:w-1.5 cursor-col-resize flex-shrink-0 transition-all
+                  ${isResizing ? 'bg-blue-400 w-1.5' : 'bg-gray-200 hover:bg-gray-300'}
+                `}
+                title="Breite anpassen"
+              />
+              
+              {/* Panel mit dynamischer Breite */}
+              <div 
+                style={{ width: panelWidth }} 
+                className="flex-shrink-0 flex flex-col overflow-hidden bg-gray-50"
+              >
+                {renderDocuments()}
+              </div>
+            </>
           )}
         </div>
       </div>
