@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Agent, Message, Document, Content, Workspace } from '../types';
-import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle, ChevronDown } from 'lucide-react';
+import { Agent, Message, Document, Content, Workspace, TableEntry } from '../types';
+import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle, ChevronDown, Table } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import * as Diff from 'diff';
@@ -143,6 +143,9 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   const [loadingContent, setLoadingContent] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   
+  // Tabellen-Einträge State
+  const [tableEntries, setTableEntries] = useState<TableEntry[]>([]);
+  
   // Realtime-Indikator
   const [contentUpdated, setContentUpdated] = useState(false);
 
@@ -245,6 +248,50 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     };
   }, [selectedDocument?.id, workspaceId]);
 
+  // Realtime für table_entries
+  useEffect(() => {
+    if (!selectedDocument || selectedDocument.type !== 'table') return;
+
+    const tableSubscription = supabase
+      .channel(`table_entries:${selectedDocument.id}:${workspaceId}`)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'table_entries'
+      }, (payload) => {
+        if (payload.eventType !== 'INSERT') return;
+        
+        const newEntry = payload.new as TableEntry;
+        if (newEntry.document_id !== selectedDocument.id) return;
+        if (newEntry.workspace_id !== workspaceId) return;
+        
+        // Aktualisiere die Einträge mit der neuesten Version
+        setTableEntries(prev => {
+          const existingIndex = prev.findIndex(e => e.row_id === newEntry.row_id);
+          if (existingIndex >= 0) {
+            // Ersetze nur wenn neue Version höher
+            if (newEntry.version > prev[existingIndex].version) {
+              const updated = [...prev];
+              updated[existingIndex] = newEntry;
+              return updated;
+            }
+            return prev;
+          }
+          return [...prev, newEntry].sort((a, b) => a.position - b.position);
+        });
+        
+        setContentUpdated(true);
+        setTimeout(() => setContentUpdated(false), 2000);
+      })
+      .subscribe((status) => {
+        console.log('Table Entries Realtime Status:', status);
+      });
+
+    return () => {
+      supabase.removeChannel(tableSubscription);
+    };
+  }, [selectedDocument?.id, selectedDocument?.type, workspaceId]);
+
   const fetchMessages = async () => {
     const { data, error } = await supabase
       .from('messages')
@@ -276,17 +323,34 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         const lastUpdatedMap: Record<string, string> = {};
         
         for (const doc of data) {
-          const { data: contentData } = await supabase
-            .from('contents')
-            .select('created_at')
-            .eq('document_id', doc.id)
-            .eq('workspace_id', workspaceId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-          
-          if (contentData) {
-            lastUpdatedMap[doc.id] = contentData.created_at;
+          if (doc.type === 'table') {
+            // Für Tabellen: letzten table_entry prüfen
+            const { data: entryData } = await supabase
+              .from('table_entries')
+              .select('created_at')
+              .eq('document_id', doc.id)
+              .eq('workspace_id', workspaceId)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+            
+            if (entryData) {
+              lastUpdatedMap[doc.id] = entryData.created_at;
+            }
+          } else {
+            // Für Text-Dokumente: contents prüfen
+            const { data: contentData } = await supabase
+              .from('contents')
+              .select('created_at')
+              .eq('document_id', doc.id)
+              .eq('workspace_id', workspaceId)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+            
+            if (contentData) {
+              lastUpdatedMap[doc.id] = contentData.created_at;
+            }
           }
         }
         
@@ -298,29 +362,59 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   const fetchDocumentContent = async (doc: Document) => {
     setLoadingContent(true);
     setSelectedDocument(doc);
+    setTableEntries([]);
+    setDocumentContent(null);
+    setContentHistory([]);
 
-    const { data: latestData, error: latestError } = await supabase
-      .from('contents')
-      .select('*')
-      .eq('document_id', doc.id)
-      .eq('workspace_id', workspaceId)
-      .order('version', { ascending: false })
-      .limit(1)
-      .single();
+    if (doc.type === 'table') {
+      // Tabellen-Einträge laden (nur neueste Version pro row_id)
+      const { data, error } = await supabase
+        .from('table_entries')
+        .select('*')
+        .eq('document_id', doc.id)
+        .eq('workspace_id', workspaceId)
+        .order('row_id')
+        .order('version', { ascending: false });
 
-    if (latestError && latestError.code !== 'PGRST116') {
-      console.error('Error fetching content:', latestError);
+      if (error) {
+        console.error('Error fetching table entries:', error);
+      } else if (data) {
+        // Nur die neueste Version pro row_id behalten
+        const latestByRowId = new Map<string, TableEntry>();
+        for (const entry of data) {
+          if (!latestByRowId.has(entry.row_id) || entry.version > latestByRowId.get(entry.row_id)!.version) {
+            latestByRowId.set(entry.row_id, entry);
+          }
+        }
+        const entries = Array.from(latestByRowId.values()).sort((a, b) => a.position - b.position);
+        setTableEntries(entries);
+      }
+    } else {
+      // Text-Dokument: Contents laden
+      const { data: latestData, error: latestError } = await supabase
+        .from('contents')
+        .select('*')
+        .eq('document_id', doc.id)
+        .eq('workspace_id', workspaceId)
+        .order('version', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (latestError && latestError.code !== 'PGRST116') {
+        console.error('Error fetching content:', latestError);
+      }
+      setDocumentContent(latestData || null);
+
+      const { data: historyData } = await supabase
+        .from('contents')
+        .select('*')
+        .eq('document_id', doc.id)
+        .eq('workspace_id', workspaceId)
+        .order('version', { ascending: false });
+
+      setContentHistory(historyData || []);
     }
-    setDocumentContent(latestData || null);
-
-    const { data: historyData } = await supabase
-      .from('contents')
-      .select('*')
-      .eq('document_id', doc.id)
-      .eq('workspace_id', workspaceId)
-      .order('version', { ascending: false });
-
-    setContentHistory(historyData || []);
+    
     setLoadingContent(false);
   };
 
@@ -378,6 +472,103 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         })}
       </div>
     );
+  };
+
+  // Tabelle rendern
+  const renderTableContent = () => {
+    if (!selectedDocument?.table_schema) {
+      return (
+        <div className="text-center py-8 text-gray-500">
+          <Table className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+          <p className="text-sm">Kein Schema definiert</p>
+        </div>
+      );
+    }
+
+    const columns = selectedDocument.table_schema.columns;
+
+    if (tableEntries.length === 0) {
+      return (
+        <div className="text-center py-8 text-gray-500">
+          <Table className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+          <p className="text-sm">Noch keine Einträge vorhanden</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Der Agent kann Einträge zu dieser Tabelle hinzufügen.
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200">
+              {columns.map((col) => (
+                <th 
+                  key={col.key} 
+                  className="text-left py-2 px-3 font-medium text-gray-700 bg-gray-50 whitespace-nowrap"
+                >
+                  {col.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {tableEntries.map((entry) => (
+              <tr key={entry.row_id} className="border-b border-gray-100 hover:bg-gray-50">
+                {columns.map((col) => (
+                  <td key={col.key} className="py-2 px-3 text-gray-900">
+                    {renderCellValue(entry.data[col.key], col.type)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="mt-3 text-xs text-gray-400 text-right">
+          {tableEntries.length} {tableEntries.length === 1 ? 'Eintrag' : 'Einträge'}
+        </div>
+      </div>
+    );
+  };
+
+  // Zellwert je nach Typ rendern
+  const renderCellValue = (value: string | number | null | undefined, type: string) => {
+    if (value === null || value === undefined || value === '') {
+      return <span className="text-gray-300">—</span>;
+    }
+
+    switch (type) {
+      case 'url':
+        return (
+          <a 
+            href={String(value)} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline truncate block max-w-[200px]"
+          >
+            {String(value)}
+          </a>
+        );
+      case 'textarea':
+        return (
+          <span className="whitespace-pre-wrap line-clamp-3">
+            {String(value)}
+          </span>
+        );
+      case 'email':
+        return (
+          <a 
+            href={`mailto:${value}`}
+            className="text-blue-600 hover:underline"
+          >
+            {String(value)}
+          </a>
+        );
+      default:
+        return String(value);
+    }
   };
 
   // Prüfen ob User ganz unten ist
@@ -667,6 +858,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
               onClick={() => {
                 setSelectedDocument(null);
                 setDocumentContent(null);
+                setTableEntries([]);
               }}
               className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 mb-2"
             >
@@ -676,7 +868,14 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <div className="min-w-0">
-                  <h5 className="font-semibold text-gray-900 truncate">{selectedDocument.name}</h5>
+                  <div className="flex items-center gap-2">
+                    <h5 className="font-semibold text-gray-900 truncate">{selectedDocument.name}</h5>
+                    {selectedDocument.type === 'table' && (
+                      <span className="flex-shrink-0 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
+                        Tabelle
+                      </span>
+                    )}
+                  </div>
                   {selectedDocument.description && (
                     <p className="text-xs text-gray-500 mt-1 line-clamp-2">{selectedDocument.description}</p>
                   )}
@@ -688,7 +887,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                   </span>
                 )}
               </div>
-              {previousVersion && (
+              {selectedDocument.type === 'text' && previousVersion && (
                 <button
                   onClick={() => setShowDiff(!showDiff)}
                   className={`flex-shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
@@ -711,7 +910,15 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
               </div>
+            ) : selectedDocument.type === 'table' ? (
+              /* Tabellen-Inhalt */
+              <div className={`bg-white rounded-lg border p-4 transition-all ${
+                contentUpdated ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'
+              }`}>
+                {renderTableContent()}
+              </div>
             ) : documentContent ? (
+              /* Text-Inhalt */
               <div className="space-y-4">
                 <div className={`bg-white rounded-lg border p-4 transition-all ${
                   contentUpdated ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'
@@ -787,8 +994,16 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-gray-100 rounded-lg text-gray-500 group-hover:bg-gray-200 transition-colors">
-                    <FileText className="w-4 h-4" />
+                  <div className={`p-2 rounded-lg transition-colors ${
+                    doc.type === 'table' 
+                      ? 'bg-blue-100 text-blue-600 group-hover:bg-blue-200' 
+                      : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200'
+                  }`}>
+                    {doc.type === 'table' ? (
+                      <Table className="w-4 h-4" />
+                    ) : (
+                      <FileText className="w-4 h-4" />
+                    )}
                   </div>
                   <div className="min-w-0">
                     <h5 className="font-medium text-sm text-gray-900 truncate">{doc.name}</h5>
