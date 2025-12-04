@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Agent, Message, Document, Content, Workspace, TableEntry } from '../types';
-import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle, ChevronDown, Table } from 'lucide-react';
+import { Agent, Message, Document, Content, Workspace, TableEntry, TableColumn } from '../types';
+import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle, ChevronDown, Table, Plus } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import * as Diff from 'diff';
@@ -145,6 +145,19 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   
   // Tabellen-Einträge State
   const [tableEntries, setTableEntries] = useState<TableEntry[]>([]);
+  
+  // Inline-Editing State
+  const [editingCell, setEditingCell] = useState<{
+    rowId: string;
+    columnKey: string;
+  } | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [savingCell, setSavingCell] = useState(false);
+  const [savedCell, setSavedCell] = useState<{
+    rowId: string;
+    columnKey: string;
+  } | null>(null);
+  const editInputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   
   // Realtime-Indikator
   const [contentUpdated, setContentUpdated] = useState(false);
@@ -292,6 +305,19 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     };
   }, [selectedDocument?.id, selectedDocument?.type, workspaceId]);
 
+  // Fokus auf Edit-Input setzen
+  useEffect(() => {
+    if (editingCell && editInputRef.current) {
+      editInputRef.current.focus();
+      // Cursor ans Ende setzen
+      if (editInputRef.current instanceof HTMLInputElement) {
+        editInputRef.current.selectionStart = editInputRef.current.value.length;
+      } else if (editInputRef.current instanceof HTMLTextAreaElement) {
+        editInputRef.current.selectionStart = editInputRef.current.value.length;
+      }
+    }
+  }, [editingCell]);
+
   const fetchMessages = async () => {
     const { data, error } = await supabase
       .from('messages')
@@ -365,6 +391,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     setTableEntries([]);
     setDocumentContent(null);
     setContentHistory([]);
+    setEditingCell(null);
 
     if (doc.type === 'table') {
       // Tabellen-Einträge laden (nur neueste Version pro row_id)
@@ -474,69 +501,196 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     );
   };
 
-  // Tabelle rendern
-  const renderTableContent = () => {
-    if (!selectedDocument?.table_schema) {
-      return (
-        <div className="text-center py-8 text-gray-500">
-          <Table className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-          <p className="text-sm">Kein Schema definiert</p>
-        </div>
-      );
+  // === INLINE EDITING FUNKTIONEN ===
+
+  const startEditing = (rowId: string, columnKey: string, currentValue: string | number | null | undefined) => {
+    setEditingCell({ rowId, columnKey });
+    setEditValue(currentValue?.toString() || '');
+  };
+
+  const cancelEditing = () => {
+    setEditingCell(null);
+    setEditValue('');
+  };
+
+  const saveCell = async () => {
+    if (!editingCell || !selectedDocument) return;
+    
+    const { rowId, columnKey } = editingCell;
+    const currentEntry = tableEntries.find(e => e.row_id === rowId);
+    
+    if (!currentEntry) {
+      cancelEditing();
+      return;
     }
+
+    const oldValue = currentEntry.data[columnKey]?.toString() || '';
+    
+    // Nur speichern wenn sich was geändert hat
+    if (oldValue === editValue) {
+      cancelEditing();
+      return;
+    }
+
+    setSavingCell(true);
+
+    const newData = {
+      ...currentEntry.data,
+      [columnKey]: editValue
+    };
+
+    const { error } = await supabase.from('table_entries').insert({
+      document_id: currentEntry.document_id,
+      workspace_id: workspaceId,
+      row_id: rowId,
+      data: newData,
+      version: currentEntry.version + 1,
+      position: currentEntry.position
+    });
+
+    if (error) {
+      console.error('Error saving cell:', error);
+    } else {
+      // Lokalen State aktualisieren
+      setTableEntries(prev => prev.map(e => 
+        e.row_id === rowId 
+          ? { ...e, data: newData, version: e.version + 1 }
+          : e
+      ));
+      
+      // Erfolgs-Feedback
+      setSavedCell({ rowId, columnKey });
+      setTimeout(() => setSavedCell(null), 1000);
+    }
+
+    setSavingCell(false);
+    cancelEditing();
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent, columnType: string) => {
+    if (e.key === 'Escape') {
+      cancelEditing();
+    } else if (e.key === 'Enter') {
+      // Bei textarea: Shift+Enter für neue Zeile, Enter allein zum Speichern
+      if (columnType === 'textarea' && !e.shiftKey) {
+        e.preventDefault();
+        saveCell();
+      } else if (columnType !== 'textarea') {
+        e.preventDefault();
+        saveCell();
+      }
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      saveCell();
+    }
+  };
+
+  const addNewRow = async () => {
+    if (!selectedDocument?.table_schema) return;
 
     const columns = selectedDocument.table_schema.columns;
+    const emptyData: Record<string, string> = {};
+    columns.forEach(col => {
+      emptyData[col.key] = '';
+    });
 
-    if (tableEntries.length === 0) {
+    const newRowId = crypto.randomUUID();
+    const maxPosition = tableEntries.length > 0 
+      ? Math.max(...tableEntries.map(e => e.position)) 
+      : 0;
+
+    const { error } = await supabase.from('table_entries').insert({
+      document_id: selectedDocument.id,
+      workspace_id: workspaceId,
+      row_id: newRowId,
+      data: emptyData,
+      version: 1,
+      position: maxPosition + 1
+    });
+
+    if (error) {
+      console.error('Error adding new row:', error);
+    } else {
+      // Lokalen State aktualisieren
+      const newEntry: TableEntry = {
+        id: crypto.randomUUID(),
+        document_id: selectedDocument.id,
+        workspace_id: workspaceId,
+        row_id: newRowId,
+        data: emptyData,
+        version: 1,
+        position: maxPosition + 1,
+        created_at: new Date().toISOString()
+      };
+      setTableEntries(prev => [...prev, newEntry]);
+      
+      // Erste Zelle der neuen Zeile zum Editieren öffnen
+      setTimeout(() => {
+        startEditing(newRowId, columns[0].key, '');
+      }, 50);
+    }
+  };
+
+  // Editierbare Zelle rendern
+  const renderEditableCell = (
+    entry: TableEntry, 
+    column: TableColumn
+  ) => {
+    const value = entry.data[column.key];
+    const isEditing = editingCell?.rowId === entry.row_id && editingCell?.columnKey === column.key;
+    const justSaved = savedCell?.rowId === entry.row_id && savedCell?.columnKey === column.key;
+
+    if (isEditing) {
+      // Edit-Modus
+      if (column.type === 'textarea') {
+        return (
+          <textarea
+            ref={editInputRef as React.RefObject<HTMLTextAreaElement>}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={saveCell}
+            onKeyDown={(e) => handleEditKeyDown(e, column.type)}
+            className="w-full min-h-[60px] px-2 py-1 text-sm border border-blue-400 rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 resize-y"
+            disabled={savingCell}
+          />
+        );
+      }
+
       return (
-        <div className="text-center py-8 text-gray-500">
-          <Table className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-          <p className="text-sm">Noch keine Einträge vorhanden</p>
-          <p className="text-xs text-gray-400 mt-1">
-            Der Agent kann Einträge zu dieser Tabelle hinzufügen.
-          </p>
-        </div>
+        <input
+          ref={editInputRef as React.RefObject<HTMLInputElement>}
+          type={column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={saveCell}
+          onKeyDown={(e) => handleEditKeyDown(e, column.type)}
+          className="w-full px-2 py-1 text-sm border border-blue-400 rounded bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+          disabled={savingCell}
+        />
       );
     }
 
+    // Anzeige-Modus (klickbar)
+    const displayContent = renderCellDisplayValue(value, column.type);
+    
     return (
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200">
-              {columns.map((col) => (
-                <th 
-                  key={col.key} 
-                  className="text-left py-2 px-3 font-medium text-gray-700 bg-gray-50 whitespace-nowrap"
-                >
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {tableEntries.map((entry) => (
-              <tr key={entry.row_id} className="border-b border-gray-100 hover:bg-gray-50">
-                {columns.map((col) => (
-                  <td key={col.key} className="py-2 px-3 text-gray-900">
-                    {renderCellValue(entry.data[col.key], col.type)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="mt-3 text-xs text-gray-400 text-right">
-          {tableEntries.length} {tableEntries.length === 1 ? 'Eintrag' : 'Einträge'}
-        </div>
+      <div
+        onClick={() => startEditing(entry.row_id, column.key, value)}
+        className={`
+          min-h-[28px] px-2 py-1 -mx-2 -my-1 rounded cursor-pointer transition-all
+          hover:bg-blue-50 hover:ring-1 hover:ring-blue-200
+          ${justSaved ? 'bg-green-100 ring-1 ring-green-300' : ''}
+        `}
+      >
+        {displayContent}
       </div>
     );
   };
 
-  // Zellwert je nach Typ rendern
-  const renderCellValue = (value: string | number | null | undefined, type: string) => {
+  // Zellwert für Anzeige rendern
+  const renderCellDisplayValue = (value: string | number | null | undefined, type: string) => {
     if (value === null || value === undefined || value === '') {
-      return <span className="text-gray-300">—</span>;
+      return <span className="text-gray-300 italic">Leer</span>;
     }
 
     switch (type) {
@@ -546,6 +700,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
             href={String(value)} 
             target="_blank" 
             rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
             className="text-blue-600 hover:underline truncate block max-w-[200px]"
           >
             {String(value)}
@@ -561,6 +716,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         return (
           <a 
             href={`mailto:${value}`}
+            onClick={(e) => e.stopPropagation()}
             className="text-blue-600 hover:underline"
           >
             {String(value)}
@@ -569,6 +725,76 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       default:
         return String(value);
     }
+  };
+
+  // Tabelle rendern
+  const renderTableContent = () => {
+    if (!selectedDocument?.table_schema) {
+      return (
+        <div className="text-center py-8 text-gray-500">
+          <Table className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+          <p className="text-sm">Kein Schema definiert</p>
+        </div>
+      );
+    }
+
+    const columns = selectedDocument.table_schema.columns;
+
+    return (
+      <div>
+        {tableEntries.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <Table className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+            <p className="text-sm">Noch keine Einträge vorhanden</p>
+            <p className="text-xs text-gray-400 mt-1 mb-4">
+              Klicke auf den Button, um einen Eintrag hinzuzufügen.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  {columns.map((col) => (
+                    <th 
+                      key={col.key} 
+                      className="text-left py-2 px-3 font-medium text-gray-700 bg-gray-50 whitespace-nowrap"
+                    >
+                      {col.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableEntries.map((entry) => (
+                  <tr key={entry.row_id} className="border-b border-gray-100">
+                    {columns.map((col) => (
+                      <td key={col.key} className="py-2 px-3 text-gray-900 align-top">
+                        {renderEditableCell(entry, col)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        
+        {/* Footer mit Zähler und Neu-Button */}
+        <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-3">
+          <span className="text-xs text-gray-400">
+            {tableEntries.length} {tableEntries.length === 1 ? 'Eintrag' : 'Einträge'}
+          </span>
+          <button
+            onClick={addNewRow}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Neue Zeile
+          </button>
+        </div>
+      </div>
+    );
   };
 
   // Prüfen ob User ganz unten ist
@@ -859,6 +1085,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                 setSelectedDocument(null);
                 setDocumentContent(null);
                 setTableEntries([]);
+                setEditingCell(null);
               }}
               className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 mb-2"
             >
