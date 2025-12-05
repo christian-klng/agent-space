@@ -8,7 +8,20 @@ import { SetupScreen } from './components/SetupScreen';
 import { StyleGuide } from './components/StyleGuide';
 import { WorkspaceSetup } from './components/WorkspaceSetup';
 import { Agent, UserProfile } from './types';
-import { LogOut, User as UserIcon, Menu, X } from 'lucide-react';
+import { LogOut, User as UserIcon, Menu, X, AlertCircle, RefreshCw } from 'lucide-react';
+
+// Timeout-Konstante (in Millisekunden)
+const AUTH_TIMEOUT = 10000; // 10 Sekunden
+
+// Hilfsfunktion: Promise mit Timeout
+const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => 
+      setTimeout(() => reject(new Error('Zeitüberschreitung bei der Verbindung zum Server')), ms)
+    )
+  ]);
+};
 
 const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
@@ -17,6 +30,7 @@ const App: React.FC = () => {
   const [initializing, setInitializing] = useState(true);
   const [checkingWorkspace, setCheckingWorkspace] = useState(false);
   const [view, setView] = useState<'home' | 'style-guide'>('home');
+  const [authError, setAuthError] = useState<string | null>(null);
   
   // Mobile Menu State
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -26,11 +40,10 @@ const App: React.FC = () => {
   const fetchUserProfile = async (userId: string) => {
     setCheckingWorkspace(true);
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
+      const { data, error } = await withTimeout(
+        supabase.from('users').select('*').eq('id', userId).single(),
+        AUTH_TIMEOUT
+      );
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching user profile:', error);
@@ -45,16 +58,33 @@ const App: React.FC = () => {
     }
   };
 
+  const initializeAuth = async () => {
+    setInitializing(true);
+    setAuthError(null);
+    
+    try {
+      const { data: { session } } = await withTimeout(
+        supabase.auth.getSession(),
+        AUTH_TIMEOUT
+      );
+      
+      setSession(session);
+      if (session?.user) {
+        await fetchUserProfile(session.user.id);
+      }
+    } catch (err) {
+      console.error('Auth initialization error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Verbindung fehlgeschlagen';
+      setAuthError(errorMessage);
+    } finally {
+      setInitializing(false);
+    }
+  };
+
   useEffect(() => {
     if (!hasSupabase) return;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        fetchUserProfile(session.user.id);
-      }
-      setInitializing(false);
-    });
+    initializeAuth();
 
     const {
       data: { subscription },
@@ -87,10 +117,36 @@ const App: React.FC = () => {
     return <SetupScreen missingSupabase={!hasSupabase} missingGemini={false} />;
   }
 
+  // Fehler-Anzeige bei Verbindungsproblemen
+  if (authError) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-white p-4">
+        <div className="text-center max-w-md">
+          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Verbindungsfehler</h2>
+          <p className="text-gray-600 text-sm mb-6">{authError}</p>
+          <button
+            onClick={initializeAuth}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Erneut versuchen
+          </button>
+          <p className="text-gray-400 text-xs mt-4">
+            Falls das Problem weiterhin besteht, überprüfe deine Internetverbindung oder versuche es später erneut.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (initializing || checkingWorkspace) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-white">
-        <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin"></div>
+        <div className="text-center">
+          <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin mx-auto mb-3"></div>
+          <p className="text-sm text-gray-500">Verbinde...</p>
+        </div>
       </div>
     );
   }
