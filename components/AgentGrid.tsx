@@ -1,13 +1,26 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { Agent, Document, MessageReadStatus } from '../types';
-import { Sparkles, AlertCircle, FileText, Mail, Table } from 'lucide-react';
+import { Sparkles, AlertCircle, FileText, Mail, Table, RefreshCw } from 'lucide-react';
 
 interface AgentGridProps {
   onSelectAgent: (agent: Agent) => void;
   workspaceId: string;
   userId: string;
 }
+
+// Timeout-Konstante (in Millisekunden)
+const FETCH_TIMEOUT = 15000; // 15 Sekunden
+
+// Hilfsfunktion: Promise mit Timeout
+const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => 
+      setTimeout(() => reject(new Error('Zeitüberschreitung bei der Verbindung zum Server')), ms)
+    )
+  ]);
+};
 
 export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent, workspaceId, userId }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -47,61 +60,79 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent, workspaceId
   }, [workspaceId]);
 
   const fetchData = async () => {
-    // Agenten laden
-    const { data: agentsData, error: agentsError } = await supabase
-      .from('agents')
-      .select('*');
+    setLoading(true);
+    setError(null);
 
-    if (agentsError) {
-      console.error('Error fetching agents:', agentsError);
-      setError(agentsError.message);
-      setLoading(false);
-      return;
-    }
+    try {
+      // Agenten laden (mit Timeout)
+      const { data: agentsData, error: agentsError } = await withTimeout(
+        supabase.from('agents').select('*'),
+        FETCH_TIMEOUT
+      );
 
-    // Dokumente laden
-    const { data: docsData, error: docsError } = await supabase
-      .from('documents')
-      .select('*');
+      if (agentsError) {
+        console.error('Error fetching agents:', agentsError);
+        setError(agentsError.message);
+        setLoading(false);
+        return;
+      }
 
-    if (docsError) {
-      console.error('Error fetching documents:', docsError);
-    }
+      // Dokumente laden (mit Timeout)
+      const { data: docsData, error: docsError } = await withTimeout(
+        supabase.from('documents').select('*'),
+        FETCH_TIMEOUT
+      );
 
-    // Lesestatus laden
-    const { data: readStatusData } = await supabase
-      .from('message_read_status')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('workspace_id', workspaceId);
+      if (docsError) {
+        console.error('Error fetching documents:', docsError);
+      }
 
-    // Ungelesene Nachrichten pro Agent ermitteln
-    const unread = new Set<string>();
-    
-    if (agentsData) {
-      for (const agent of agentsData) {
-        const readStatus = readStatusData?.find(rs => rs.agent_id === agent.id);
-        const lastReadAt = readStatus?.last_read_at || '1970-01-01';
+      // Lesestatus laden (mit Timeout)
+      const { data: readStatusData } = await withTimeout(
+        supabase
+          .from('message_read_status')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('workspace_id', workspaceId),
+        FETCH_TIMEOUT
+      );
 
-        // Prüfen ob es neuere Assistant-Nachrichten gibt
-        const { count } = await supabase
-          .from('messages')
-          .select('*', { count: 'exact', head: true })
-          .eq('workspace_id', workspaceId)
-          .eq('agent_id', agent.id)
-          .eq('role', 'assistant')
-          .gt('created_at', lastReadAt);
+      // Ungelesene Nachrichten pro Agent ermitteln
+      const unread = new Set<string>();
+      
+      if (agentsData) {
+        for (const agent of agentsData) {
+          const readStatus = readStatusData?.find(rs => rs.agent_id === agent.id);
+          const lastReadAt = readStatus?.last_read_at || '1970-01-01';
 
-        if (count && count > 0) {
-          unread.add(agent.id);
+          // Prüfen ob es neuere Assistant-Nachrichten gibt (mit Timeout)
+          const { count } = await withTimeout(
+            supabase
+              .from('messages')
+              .select('*', { count: 'exact', head: true })
+              .eq('workspace_id', workspaceId)
+              .eq('agent_id', agent.id)
+              .eq('role', 'assistant')
+              .gt('created_at', lastReadAt),
+            FETCH_TIMEOUT
+          );
+
+          if (count && count > 0) {
+            unread.add(agent.id);
+          }
         }
       }
-    }
 
-    setAgents(agentsData || []);
-    setDocuments(docsData || []);
-    setUnreadAgents(unread);
-    setLoading(false);
+      setAgents(agentsData || []);
+      setDocuments(docsData || []);
+      setUnreadAgents(unread);
+    } catch (err) {
+      console.error('Fehler beim Laden:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unbekannter Fehler';
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getDocumentsForAgent = (agentId: string): Document[] => {
@@ -158,7 +189,10 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent, workspaceId
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin"></div>
+        <div className="text-center">
+          <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin mx-auto mb-3"></div>
+          <p className="text-sm text-gray-500">Lade Agenten...</p>
+        </div>
       </div>
     );
   }
@@ -169,8 +203,17 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent, workspaceId
         <div className="text-center py-12 sm:py-20 border border-dashed border-red-200 rounded-xl bg-red-50">
           <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-3" />
           <h3 className="text-red-900 font-medium mb-1">Fehler beim Laden</h3>
-          <p className="text-red-600 text-sm mb-2">{error}</p>
-          <p className="text-red-500 text-xs">Überprüfe die RLS-Policies in Supabase.</p>
+          <p className="text-red-600 text-sm mb-4">{error}</p>
+          <button
+            onClick={fetchData}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Erneut versuchen
+          </button>
+          <p className="text-red-500 text-xs mt-4">
+            Falls das Problem weiterhin besteht, überprüfe deine Internetverbindung.
+          </p>
         </div>
       </div>
     );
