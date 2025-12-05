@@ -1400,11 +1400,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg transition-colors ${
-                    doc.type === 'table' 
-                      ? 'bg-blue-100 text-blue-600 group-hover:bg-blue-200' 
-                      : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200'
-                  }`}>
+                  <div className="p-2 rounded-lg bg-gray-100 text-gray-500 group-hover:bg-gray-200 transition-colors">
                     {doc.type === 'table' ? (
                       <Table className="w-4 h-4" />
                     ) : (

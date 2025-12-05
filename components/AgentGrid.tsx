@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { Agent, Document, MessageReadStatus } from '../types';
-import { Sparkles, AlertCircle, FileText, Mail } from 'lucide-react';
+import { Sparkles, AlertCircle, FileText, Mail, Table } from 'lucide-react';
 
 interface AgentGridProps {
   onSelectAgent: (agent: Agent) => void;
@@ -249,7 +249,11 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent, workspaceId
                             title={doc.name}
                             className="p-1 sm:p-1.5 bg-gray-50 rounded-md text-gray-400"
                           >
-                            <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
+                            {doc.type === 'table' ? (
+                              <Table className="w-3 h-3 sm:w-4 sm:h-4" />
+                            ) : (
+                              <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
+                            )}
                           </div>
                         ))}
                         {agentDocs.length > 3 && (
