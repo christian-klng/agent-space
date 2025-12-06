@@ -146,8 +146,8 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   // Tabellen-Einträge State
   const [tableEntries, setTableEntries] = useState<TableEntry[]>([]);
   
-  // NEU: Tabellen-Ansicht Toggle ('table' oder 'list')
-  const [tableViewMode, setTableViewMode] = useState<'table' | 'list'>('table');
+  // Tabellen-Ansicht Toggle ('table' oder 'list') - Liste als Standard
+  const [tableViewMode, setTableViewMode] = useState<'table' | 'list'>('list');
   
   // Inline-Editing State
   const [editingCell, setEditingCell] = useState<{
@@ -1402,11 +1402,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h5 className="font-semibold text-gray-900 truncate">{selectedDocument.name}</h5>
-                    {selectedDocument.type === 'table' && (
-                      <span className="flex-shrink-0 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
-                        Tabelle
-                      </span>
-                    )}
                   </div>
                   {selectedDocument.description && (
                     <p className="text-xs text-gray-500 mt-1 line-clamp-2">{selectedDocument.description}</p>
