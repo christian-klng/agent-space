@@ -1311,23 +1311,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
           </div>
         )}
 
-        {/* Volltext-Inhalt */}
-        {webpageContent?.content && (
-          <div className={`bg-white rounded-lg border p-4 transition-all ${
-            contentUpdated ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'
-          }`}>
-            <div className="flex items-center gap-2 mb-3">
-              <FileText className="w-4 h-4 text-gray-400" />
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Seiteninhalt</span>
-            </div>
-            <div className="prose prose-sm max-w-none text-gray-700">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {webpageContent.content}
-              </ReactMarkdown>
-            </div>
-          </div>
-        )}
-
         {/* Ausgehende Links */}
         {webpageContent?.links && webpageContent.links.length > 0 && (
           <div className={`bg-white rounded-lg border p-4 transition-all ${
