@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { Agent, Message, Document, Content, Workspace, TableEntry, TableColumn } from '../types';
-import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle, ChevronDown, Table, Plus } from 'lucide-react';
+import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle, ChevronDown, Table, Plus, List } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import * as Diff from 'diff';
@@ -145,6 +145,9 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   
   // Tabellen-Einträge State
   const [tableEntries, setTableEntries] = useState<TableEntry[]>([]);
+  
+  // NEU: Tabellen-Ansicht Toggle ('table' oder 'list')
+  const [tableViewMode, setTableViewMode] = useState<'table' | 'list'>('table');
   
   // Inline-Editing State
   const [editingCell, setEditingCell] = useState<{
@@ -906,7 +909,106 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     }
   };
 
-  // Tabelle rendern
+  // === NEU: Listentitel aus Daten generieren ===
+  const getListItemTitle = (entry: TableEntry): string => {
+    if (!selectedDocument?.table_schema) return 'Eintrag';
+    
+    const schema = selectedDocument.table_schema;
+    const data = entry.data;
+    
+    // Wenn title_columns definiert ist, diese verwenden
+    if (schema.title_columns && schema.title_columns.length > 0) {
+      const titleParts = schema.title_columns
+        .map(key => data[key])
+        .filter(val => val !== null && val !== undefined && val !== '')
+        .map(val => String(val));
+      
+      if (titleParts.length > 0) {
+        return titleParts.join(' ');
+      }
+    }
+    
+    // Fallback: Erste 2-3 nicht-leere Spalten verwenden
+    const columns = schema.columns;
+    const titleParts: string[] = [];
+    
+    for (const col of columns) {
+      const val = data[col.key];
+      if (val !== null && val !== undefined && val !== '') {
+        titleParts.push(String(val));
+        if (titleParts.length >= 3) break;
+      }
+    }
+    
+    return titleParts.length > 0 ? titleParts.join(' ') : 'Eintrag ohne Titel';
+  };
+
+  // === NEU: Listenansicht rendern ===
+  const renderTableListView = () => {
+    if (!selectedDocument?.table_schema) {
+      return (
+        <div className="text-center py-8 text-gray-500">
+          <Table className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+          <p className="text-sm">Kein Schema definiert</p>
+        </div>
+      );
+    }
+
+    const columns = selectedDocument.table_schema.columns;
+
+    if (tableEntries.length === 0) {
+      return (
+        <div className="text-center py-8 text-gray-500">
+          <List className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+          <p className="text-sm">Noch keine Einträge vorhanden</p>
+          <p className="text-xs text-gray-400 mt-1 mb-4">
+            Klicke auf den Button, um einen Eintrag hinzuzufügen.
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        {tableEntries.map((entry) => {
+          const title = getListItemTitle(entry);
+          
+          return (
+            <div
+              key={entry.row_id}
+              className="bg-white border border-gray-200 rounded-lg p-4 hover:border-gray-300 hover:shadow-sm transition-all"
+            >
+              {/* Listeneintrag Titel */}
+              <h6 className="font-medium text-gray-900 mb-3 text-sm">
+                {title}
+              </h6>
+              
+              {/* Alle Felder als kompakte Liste */}
+              <div className="space-y-2">
+                {columns.map((col) => {
+                  const value = entry.data[col.key];
+                  const isEmpty = value === null || value === undefined || value === '';
+                  
+                  return (
+                    <div key={col.key} className="flex items-start gap-2 text-sm">
+                      <span className="text-gray-500 min-w-[80px] flex-shrink-0">
+                        {col.label}:
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        {renderEditableCell(entry, col)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // === Tabelle rendern (mit Ansicht-Toggle) ===
   const renderTableContent = () => {
     if (!selectedDocument?.table_schema) {
       return (
@@ -919,6 +1021,30 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
 
     const columns = selectedDocument.table_schema.columns;
 
+    // Listenansicht
+    if (tableViewMode === 'list') {
+      return (
+        <div>
+          {renderTableListView()}
+          
+          {/* Footer mit Zähler und Neu-Button */}
+          <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-3">
+            <span className="text-xs text-gray-400">
+              {tableEntries.length} {tableEntries.length === 1 ? 'Eintrag' : 'Einträge'}
+            </span>
+            <button
+              onClick={addNewRow}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Neuer Eintrag
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Tabellenansicht (Original)
     return (
       <div>
         {tableEntries.length === 0 ? (
@@ -1293,20 +1419,50 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                   </span>
                 )}
               </div>
-              {selectedDocument.type === 'text' && previousVersion && (
-                <button
-                  onClick={() => setShowDiff(!showDiff)}
-                  className={`flex-shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                    showDiff 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                  title="Änderungen anzeigen"
-                >
-                  <GitCompare className="w-3 h-3" />
-                  <span className="hidden sm:inline">Diff</span>
-                </button>
-              )}
+              
+              {/* Toggle-Buttons */}
+              <div className="flex items-center gap-2">
+                {/* NEU: Tabellen-Ansicht Toggle */}
+                {selectedDocument.type === 'table' && tableEntries.length > 0 && (
+                  <button
+                    onClick={() => setTableViewMode(tableViewMode === 'table' ? 'list' : 'table')}
+                    className={`flex-shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                      tableViewMode === 'list' 
+                        ? 'bg-blue-100 text-blue-700' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                    title={tableViewMode === 'list' ? 'Zur Tabellenansicht wechseln' : 'Zur Listenansicht wechseln'}
+                  >
+                    {tableViewMode === 'list' ? (
+                      <>
+                        <Table className="w-3 h-3" />
+                        <span className="hidden sm:inline">Tabelle</span>
+                      </>
+                    ) : (
+                      <>
+                        <List className="w-3 h-3" />
+                        <span className="hidden sm:inline">Liste</span>
+                      </>
+                    )}
+                  </button>
+                )}
+                
+                {/* Diff-Toggle für Text-Dokumente */}
+                {selectedDocument.type === 'text' && previousVersion && (
+                  <button
+                    onClick={() => setShowDiff(!showDiff)}
+                    className={`flex-shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                      showDiff 
+                        ? 'bg-blue-100 text-blue-700' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                    title="Änderungen anzeigen"
+                  >
+                    <GitCompare className="w-3 h-3" />
+                    <span className="hidden sm:inline">Diff</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 

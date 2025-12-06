@@ -51,6 +51,10 @@ export interface TableColumn {
 export interface TableSchema {
   type: string;
   columns: TableColumn[];
+  // NEU: Definiert welche Spalten für den Listentitel verwendet werden
+  // Beispiel: ["titel", "vorname", "nachname"] für Personen
+  // Beispiel: ["name", "firma"] für Organisationen
+  title_columns?: string[];
 }
 
 // Dokumente
