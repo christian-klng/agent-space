@@ -149,6 +149,10 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   // Tabellen-Ansicht Toggle ('table' oder 'list') - Liste als Standard
   const [tableViewMode, setTableViewMode] = useState<'table' | 'list'>('list');
   
+  // Realtime-Update: Welche Zeile wurde gerade aktualisiert
+  const [updatedRowId, setUpdatedRowId] = useState<string | null>(null);
+  const rowRefs = useRef<Record<string, HTMLDivElement | HTMLTableRowElement | null>>({});
+  
   // Inline-Editing State
   const [editingCell, setEditingCell] = useState<{
     rowId: string;
@@ -347,6 +351,18 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
           }
           return [...prev, newEntry].sort((a, b) => a.position - b.position);
         });
+        
+        // Zeile als aktualisiert markieren und nach kurzer Zeit zurücksetzen
+        setUpdatedRowId(newEntry.row_id);
+        setTimeout(() => setUpdatedRowId(null), 2000);
+        
+        // In Listenansicht: zum aktualisierten Eintrag scrollen
+        setTimeout(() => {
+          const rowEl = rowRefs.current[newEntry.row_id];
+          if (rowEl && tableViewMode === 'list') {
+            rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 100);
         
         setContentUpdated(true);
         setTimeout(() => setContentUpdated(false), 2000);
@@ -972,11 +988,17 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       <div className="space-y-3">
         {tableEntries.map((entry) => {
           const title = getListItemTitle(entry);
+          const isUpdated = updatedRowId === entry.row_id;
           
           return (
             <div
               key={entry.row_id}
-              className="bg-white border border-gray-200 rounded-lg p-4 hover:border-gray-300 hover:shadow-sm transition-all"
+              ref={(el) => { rowRefs.current[entry.row_id] = el; }}
+              className={`bg-white border rounded-lg p-4 transition-all ${
+                isUpdated 
+                  ? 'border-green-400 ring-2 ring-green-100 bg-green-50' 
+                  : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+              }`}
             >
               {/* Listeneintrag Titel */}
               <h6 className="font-medium text-gray-900 mb-3 text-sm">
@@ -1071,15 +1093,26 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                 </tr>
               </thead>
               <tbody>
-                {tableEntries.map((entry) => (
-                  <tr key={entry.row_id} className="border-b border-gray-100">
-                    {columns.map((col) => (
-                      <td key={col.key} className="py-2 px-3 text-gray-900 align-top">
-                        {renderEditableCell(entry, col)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                {tableEntries.map((entry) => {
+                  const isUpdated = updatedRowId === entry.row_id;
+                  return (
+                    <tr 
+                      key={entry.row_id} 
+                      ref={(el) => { rowRefs.current[entry.row_id] = el; }}
+                      className={`border-b transition-all ${
+                        isUpdated 
+                          ? 'border-green-300 bg-green-50' 
+                          : 'border-gray-100'
+                      }`}
+                    >
+                      {columns.map((col) => (
+                        <td key={col.key} className="py-2 px-3 text-gray-900 align-top">
+                          {renderEditableCell(entry, col)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1422,23 +1455,14 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                   <button
                     onClick={() => setTableViewMode(tableViewMode === 'table' ? 'list' : 'table')}
                     className={`flex-shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                      tableViewMode === 'list' 
+                      tableViewMode === 'table' 
                         ? 'bg-blue-100 text-blue-700' 
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}
-                    title={tableViewMode === 'list' ? 'Zur Tabellenansicht wechseln' : 'Zur Listenansicht wechseln'}
+                    title={tableViewMode === 'list' ? 'Tabellenansicht anzeigen' : 'Listenansicht anzeigen'}
                   >
-                    {tableViewMode === 'list' ? (
-                      <>
-                        <Table className="w-3 h-3" />
-                        <span className="hidden sm:inline">Tabelle</span>
-                      </>
-                    ) : (
-                      <>
-                        <List className="w-3 h-3" />
-                        <span className="hidden sm:inline">Liste</span>
-                      </>
-                    )}
+                    <Table className="w-3 h-3" />
+                    <span className="hidden sm:inline">Tabelle</span>
                   </button>
                 )}
                 
