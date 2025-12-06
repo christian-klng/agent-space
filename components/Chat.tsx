@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Agent, Message, Document, Content, Workspace, TableEntry, TableColumn } from '../types';
-import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle, ChevronDown, Table, Plus, List } from 'lucide-react';
+import { Agent, Message, Document, Content, Workspace, TableEntry, TableColumn, WebpageEntry } from '../types';
+import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle, ChevronDown, Table, Plus, List, Globe, ExternalLink, Link2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import * as Diff from 'diff';
@@ -120,7 +120,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   // Wiederherstellen nach Messages laden
   useEffect(() => {
     if (messages.length > 0 && !hasRestoredScroll.current) {
-      // Warten bis DOM aktualisiert ist
       const timer = setTimeout(() => {
         restoreScrollPosition();
       }, 50);
@@ -128,7 +127,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     }
   }, [messages]);
 
-  // Mobile Tab State: 'chat' oder 'documents'
+  // Mobile Tab State
   const [mobileTab, setMobileTab] = useState<'chat' | 'documents'>('chat');
 
   // Workspace mit Webhook URL
@@ -145,13 +144,16 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   
   // Tabellen-Einträge State
   const [tableEntries, setTableEntries] = useState<TableEntry[]>([]);
-  
-  // Tabellen-Ansicht Toggle ('table' oder 'list') - Liste als Standard
   const [tableViewMode, setTableViewMode] = useState<'table' | 'list'>('list');
-  
-  // Realtime-Update: Welche Zeile wurde gerade aktualisiert
   const [updatedRowId, setUpdatedRowId] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLDivElement | HTMLTableRowElement | null>>({});
+  
+  // Webseiten State (NEU)
+  const [webpageContent, setWebpageContent] = useState<WebpageEntry | null>(null);
+  const [webpageHistory, setWebpageHistory] = useState<WebpageEntry[]>([]);
+  const [editingUrl, setEditingUrl] = useState(false);
+  const [urlInputValue, setUrlInputValue] = useState('');
+  const [savingUrl, setSavingUrl] = useState(false);
   
   // Inline-Editing State
   const [editingCell, setEditingCell] = useState<{
@@ -165,7 +167,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     columnKey: string;
   } | null>(null);
   const editInputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
-  const isNavigatingRef = useRef(false); // Verhindert onBlur während Tab-Navigation
+  const isNavigatingRef = useRef(false);
 
   // Resizable Panel State
   const [panelWidth, setPanelWidth] = useState(() => {
@@ -191,7 +193,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       const containerRect = containerRef.current.getBoundingClientRect();
       const newWidth = containerRect.right - e.clientX;
       
-      // Min 250px, Max 60% des Containers
       const minWidth = 250;
       const maxWidth = containerRect.width * 0.6;
       const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
@@ -221,7 +222,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     };
   }, [isResizing, panelWidth]);
 
-  // Workspace laden (für Webhook URL)
+  // Workspace laden
   useEffect(() => {
     fetchWorkspace();
   }, [workspaceId]);
@@ -253,7 +254,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         table: 'messages'
       }, (payload) => {
         const newMessage = payload.new as Message;
-        // Manuell filtern (zuverlässiger als Supabase Filter)
         if (newMessage.workspace_id !== workspaceId) return;
         if (newMessage.agent_id !== agent.id) return;
         
@@ -263,7 +263,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
             return [...prev, newMessage];
           });
           
-          // Wenn Assistant-Nachricht und User nicht am Ende: als ungelesen markieren
           if (newMessage.role === 'assistant' && !isAtBottom) {
             setHasUnreadMessages(true);
           }
@@ -278,9 +277,9 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     };
   }, [agent.id, workspaceId]);
 
-  // Realtime für Contents (Dokumentenänderungen)
+  // Realtime für Contents (Text-Dokumente)
   useEffect(() => {
-    if (!selectedDocument) return;
+    if (!selectedDocument || selectedDocument.type !== 'text') return;
 
     const contentSubscription = supabase
       .channel(`contents:${selectedDocument.id}:${workspaceId}`)
@@ -292,7 +291,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         if (payload.eventType !== 'INSERT') return;
         
         const newContent = payload.new as Content;
-        // Manuell filtern
         if (newContent.document_id !== selectedDocument.id) return;
         if (newContent.workspace_id !== workspaceId) return;
         
@@ -302,7 +300,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         });
         setDocumentContent(newContent);
         
-        // Letztes Update-Datum aktualisieren
         setDocumentLastUpdated(prev => ({
           ...prev,
           [newContent.document_id]: newContent.created_at
@@ -318,7 +315,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     return () => {
       supabase.removeChannel(contentSubscription);
     };
-  }, [selectedDocument?.id, workspaceId]);
+  }, [selectedDocument?.id, selectedDocument?.type, workspaceId]);
 
   // Realtime für table_entries
   useEffect(() => {
@@ -337,11 +334,9 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         if (newEntry.document_id !== selectedDocument.id) return;
         if (newEntry.workspace_id !== workspaceId) return;
         
-        // Aktualisiere die Einträge mit der neuesten Version
         setTableEntries(prev => {
           const existingIndex = prev.findIndex(e => e.row_id === newEntry.row_id);
           if (existingIndex >= 0) {
-            // Ersetze nur wenn neue Version höher
             if (newEntry.version > prev[existingIndex].version) {
               const updated = [...prev];
               updated[existingIndex] = newEntry;
@@ -352,11 +347,9 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
           return [...prev, newEntry].sort((a, b) => a.position - b.position);
         });
         
-        // Zeile als aktualisiert markieren und nach kurzer Zeit zurücksetzen
         setUpdatedRowId(newEntry.row_id);
         setTimeout(() => setUpdatedRowId(null), 2000);
         
-        // In Listenansicht: zum aktualisierten Eintrag scrollen
         setTimeout(() => {
           const rowEl = rowRefs.current[newEntry.row_id];
           if (rowEl && tableViewMode === 'list') {
@@ -376,11 +369,50 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     };
   }, [selectedDocument?.id, selectedDocument?.type, workspaceId]);
 
-  // Fokus auf Edit-Input setzen
+  // Realtime für webpages (NEU)
+  useEffect(() => {
+    if (!selectedDocument || selectedDocument.type !== 'webpage') return;
+
+    const webpageSubscription = supabase
+      .channel(`webpages:${selectedDocument.id}:${workspaceId}`)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'webpages'
+      }, (payload) => {
+        if (payload.eventType !== 'INSERT') return;
+        
+        const newWebpage = payload.new as WebpageEntry;
+        if (newWebpage.document_id !== selectedDocument.id) return;
+        if (newWebpage.workspace_id !== workspaceId) return;
+        
+        setWebpageHistory(prev => {
+          if (prev.find(w => w.id === newWebpage.id)) return prev;
+          return [newWebpage, ...prev];
+        });
+        setWebpageContent(newWebpage);
+        
+        setDocumentLastUpdated(prev => ({
+          ...prev,
+          [newWebpage.document_id]: newWebpage.created_at
+        }));
+        
+        setContentUpdated(true);
+        setTimeout(() => setContentUpdated(false), 2000);
+      })
+      .subscribe((status) => {
+        console.log('Webpages Realtime Status:', status);
+      });
+
+    return () => {
+      supabase.removeChannel(webpageSubscription);
+    };
+  }, [selectedDocument?.id, selectedDocument?.type, workspaceId]);
+
+  // Fokus auf Edit-Input
   useEffect(() => {
     if (editingCell && editInputRef.current) {
       editInputRef.current.focus();
-      // Cursor ans Ende setzen
       if (editInputRef.current instanceof HTMLInputElement) {
         editInputRef.current.selectionStart = editInputRef.current.value.length;
       } else if (editInputRef.current instanceof HTMLTextAreaElement) {
@@ -415,13 +447,11 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     } else {
       setDocuments(data || []);
       
-      // Letztes Update-Datum für jedes Dokument laden
       if (data && data.length > 0) {
         const lastUpdatedMap: Record<string, string> = {};
         
         for (const doc of data) {
           if (doc.type === 'table') {
-            // Für Tabellen: letzten table_entry prüfen
             const { data: entryData } = await supabase
               .from('table_entries')
               .select('created_at')
@@ -434,8 +464,20 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
             if (entryData) {
               lastUpdatedMap[doc.id] = entryData.created_at;
             }
+          } else if (doc.type === 'webpage') {
+            const { data: webpageData } = await supabase
+              .from('webpages')
+              .select('created_at')
+              .eq('document_id', doc.id)
+              .eq('workspace_id', workspaceId)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+            
+            if (webpageData) {
+              lastUpdatedMap[doc.id] = webpageData.created_at;
+            }
           } else {
-            // Für Text-Dokumente: contents prüfen
             const { data: contentData } = await supabase
               .from('contents')
               .select('created_at')
@@ -462,10 +504,12 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     setTableEntries([]);
     setDocumentContent(null);
     setContentHistory([]);
+    setWebpageContent(null);
+    setWebpageHistory([]);
     setEditingCell(null);
+    setEditingUrl(false);
 
     if (doc.type === 'table') {
-      // Tabellen-Einträge laden (nur neueste Version pro row_id)
       const { data, error } = await supabase
         .from('table_entries')
         .select('*')
@@ -477,7 +521,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       if (error) {
         console.error('Error fetching table entries:', error);
       } else if (data) {
-        // Nur die neueste Version pro row_id behalten
         const latestByRowId = new Map<string, TableEntry>();
         for (const entry of data) {
           if (!latestByRowId.has(entry.row_id) || entry.version > latestByRowId.get(entry.row_id)!.version) {
@@ -487,8 +530,32 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         const entries = Array.from(latestByRowId.values()).sort((a, b) => a.position - b.position);
         setTableEntries(entries);
       }
+    } else if (doc.type === 'webpage') {
+      // Webseiten laden (NEU)
+      const { data: latestData, error: latestError } = await supabase
+        .from('webpages')
+        .select('*')
+        .eq('document_id', doc.id)
+        .eq('workspace_id', workspaceId)
+        .order('version', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (latestError && latestError.code !== 'PGRST116') {
+        console.error('Error fetching webpage:', latestError);
+      }
+      setWebpageContent(latestData || null);
+      setUrlInputValue(latestData?.url || '');
+
+      const { data: historyData } = await supabase
+        .from('webpages')
+        .select('*')
+        .eq('document_id', doc.id)
+        .eq('workspace_id', workspaceId)
+        .order('version', { ascending: false });
+
+      setWebpageHistory(historyData || []);
     } else {
-      // Text-Dokument: Contents laden
       const { data: latestData, error: latestError } = await supabase
         .from('contents')
         .select('*')
@@ -518,6 +585,10 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
 
   const loadVersion = (content: Content) => {
     setDocumentContent(content);
+  };
+
+  const loadWebpageVersion = (webpage: WebpageEntry) => {
+    setWebpageContent(webpage);
   };
 
   const getPreviousVersion = (): Content | null => {
@@ -572,6 +643,35 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     );
   };
 
+  // URL speichern (für Webseiten)
+  const saveUrl = async () => {
+    if (!selectedDocument || !urlInputValue.trim()) return;
+    
+    setSavingUrl(true);
+    
+    const newVersion = webpageContent ? webpageContent.version + 1 : 1;
+    
+    const { error } = await supabase.from('webpages').insert({
+      document_id: selectedDocument.id,
+      workspace_id: workspaceId,
+      url: urlInputValue.trim(),
+      title: webpageContent?.title || null,
+      thumbnail: webpageContent?.thumbnail || null,
+      description: webpageContent?.description || null,
+      content: webpageContent?.content || null,
+      links: webpageContent?.links || [],
+      version: newVersion
+    });
+
+    if (error) {
+      console.error('Error saving URL:', error);
+    } else {
+      setEditingUrl(false);
+    }
+    
+    setSavingUrl(false);
+  };
+
   // === INLINE EDITING FUNKTIONEN ===
 
   const startEditing = (rowId: string, columnKey: string, currentValue: string | number | null | undefined) => {
@@ -597,7 +697,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
 
     const oldValue = currentEntry.data[columnKey]?.toString() || '';
     
-    // Nur speichern wenn sich was geändert hat
     if (oldValue === editValue) {
       cancelEditing();
       return;
@@ -622,14 +721,12 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     if (error) {
       console.error('Error saving cell:', error);
     } else {
-      // Lokalen State aktualisieren
       setTableEntries(prev => prev.map(e => 
         e.row_id === rowId 
           ? { ...e, data: newData, version: e.version + 1 }
           : e
       ));
       
-      // Erfolgs-Feedback
       setSavedCell({ rowId, columnKey });
       setTimeout(() => setSavedCell(null), 1000);
     }
@@ -638,7 +735,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     cancelEditing();
   };
 
-  // Nächste/Vorherige Zelle finden
   const getAdjacentCell = (direction: 'next' | 'prev'): { rowId: string; columnKey: string } | null => {
     if (!editingCell || !selectedDocument?.table_schema) return null;
     
@@ -649,14 +745,12 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     if (currentRowIndex === -1 || currentColIndex === -1) return null;
     
     if (direction === 'next') {
-      // Nächste Spalte in der gleichen Zeile
       if (currentColIndex < columns.length - 1) {
         return {
           rowId: editingCell.rowId,
           columnKey: columns[currentColIndex + 1].key
         };
       }
-      // Erste Spalte der nächsten Zeile
       if (currentRowIndex < tableEntries.length - 1) {
         return {
           rowId: tableEntries[currentRowIndex + 1].row_id,
@@ -664,14 +758,12 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         };
       }
     } else {
-      // Vorherige Spalte in der gleichen Zeile
       if (currentColIndex > 0) {
         return {
           rowId: editingCell.rowId,
           columnKey: columns[currentColIndex - 1].key
         };
       }
-      // Letzte Spalte der vorherigen Zeile
       if (currentRowIndex > 0) {
         return {
           rowId: tableEntries[currentRowIndex - 1].row_id,
@@ -683,19 +775,15 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     return null;
   };
 
-  // Speichern und zur nächsten Zelle wechseln
   const saveCellAndNavigate = async (direction: 'next' | 'prev' | null) => {
     if (!editingCell || !selectedDocument) return;
     
-    // Flag setzen um onBlur zu blockieren bei Tab-Navigation
     if (direction !== null) {
       isNavigatingRef.current = true;
     }
     
     const { rowId, columnKey } = editingCell;
     const currentEntry = tableEntries.find(e => e.row_id === rowId);
-    
-    // Nächste Zelle vor dem Speichern ermitteln
     const nextCell = direction ? getAdjacentCell(direction) : null;
     
     if (!currentEntry) {
@@ -706,7 +794,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
 
     const oldValue = currentEntry.data[columnKey]?.toString() || '';
     
-    // Nur speichern wenn sich was geändert hat
     if (oldValue !== editValue) {
       setSavingCell(true);
 
@@ -727,14 +814,12 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       if (error) {
         console.error('Error saving cell:', error);
       } else {
-        // Lokalen State aktualisieren
         setTableEntries(prev => prev.map(e => 
           e.row_id === rowId 
             ? { ...e, data: newData, version: e.version + 1 }
             : e
         ));
         
-        // Erfolgs-Feedback
         setSavedCell({ rowId, columnKey });
         setTimeout(() => setSavedCell(null), 1000);
       }
@@ -742,11 +827,9 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       setSavingCell(false);
     }
 
-    // Editing beenden
     setEditingCell(null);
     setEditValue('');
     
-    // Zur nächsten Zelle navigieren
     if (nextCell) {
       const nextEntry = tableEntries.find(e => e.row_id === nextCell.rowId);
       const nextValue = nextEntry?.data[nextCell.columnKey];
@@ -759,7 +842,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     }
   };
 
-  // onBlur Handler - ignoriert wenn Tab-Navigation aktiv
   const handleCellBlur = () => {
     if (isNavigatingRef.current) return;
     saveCellAndNavigate(null);
@@ -769,7 +851,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     if (e.key === 'Escape') {
       cancelEditing();
     } else if (e.key === 'Enter') {
-      // Bei textarea: Shift+Enter für neue Zeile, Enter allein zum Speichern
       if (columnType === 'textarea' && !e.shiftKey) {
         e.preventDefault();
         saveCellAndNavigate(null);
@@ -809,7 +890,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     if (error) {
       console.error('Error adding new row:', error);
     } else {
-      // Lokalen State aktualisieren
       const newEntry: TableEntry = {
         id: crypto.randomUUID(),
         document_id: selectedDocument.id,
@@ -822,14 +902,12 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       };
       setTableEntries(prev => [...prev, newEntry]);
       
-      // Erste Zelle der neuen Zeile zum Editieren öffnen
       setTimeout(() => {
         startEditing(newRowId, columns[0].key, '');
       }, 50);
     }
   };
 
-  // Editierbare Zelle rendern
   const renderEditableCell = (
     entry: TableEntry, 
     column: TableColumn
@@ -839,7 +917,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     const justSaved = savedCell?.rowId === entry.row_id && savedCell?.columnKey === column.key;
 
     if (isEditing) {
-      // Edit-Modus
       if (column.type === 'textarea') {
         return (
           <textarea
@@ -868,7 +945,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       );
     }
 
-    // Anzeige-Modus (klickbar)
     const displayContent = renderCellDisplayValue(value, column.type);
     
     return (
@@ -885,7 +961,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     );
   };
 
-  // Zellwert für Anzeige rendern
   const renderCellDisplayValue = (value: string | number | null | undefined, type: string) => {
     if (value === null || value === undefined || value === '') {
       return <span className="text-gray-300 italic">Leer</span>;
@@ -925,14 +1000,12 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     }
   };
 
-  // === NEU: Listentitel aus Daten generieren ===
   const getListItemTitle = (entry: TableEntry): string => {
     if (!selectedDocument?.table_schema) return 'Eintrag';
     
     const schema = selectedDocument.table_schema;
     const data = entry.data;
     
-    // Wenn title_columns definiert ist, diese verwenden
     if (schema.title_columns && schema.title_columns.length > 0) {
       const titleParts = schema.title_columns
         .map(key => data[key])
@@ -944,7 +1017,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       }
     }
     
-    // Fallback: Erste 2-3 nicht-leere Spalten verwenden
     const columns = schema.columns;
     const titleParts: string[] = [];
     
@@ -959,7 +1031,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     return titleParts.length > 0 ? titleParts.join(' ') : 'Eintrag ohne Titel';
   };
 
-  // === NEU: Listenansicht rendern ===
   const renderTableListView = () => {
     if (!selectedDocument?.table_schema) {
       return (
@@ -1000,28 +1071,21 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                   : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
               }`}
             >
-              {/* Listeneintrag Titel */}
               <h6 className="font-medium text-gray-900 mb-3 text-sm">
                 {title}
               </h6>
               
-              {/* Alle Felder als kompakte Liste */}
               <div className="space-y-2">
-                {columns.map((col) => {
-                  const value = entry.data[col.key];
-                  const isEmpty = value === null || value === undefined || value === '';
-                  
-                  return (
-                    <div key={col.key} className="flex items-start gap-2 text-sm">
-                      <span className="text-gray-500 min-w-[80px] flex-shrink-0">
-                        {col.label}:
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        {renderEditableCell(entry, col)}
-                      </div>
+                {columns.map((col) => (
+                  <div key={col.key} className="flex items-start gap-2 text-sm">
+                    <span className="text-gray-500 min-w-[80px] flex-shrink-0">
+                      {col.label}:
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      {renderEditableCell(entry, col)}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
           );
@@ -1030,7 +1094,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     );
   };
 
-  // === Tabelle rendern (mit Ansicht-Toggle) ===
   const renderTableContent = () => {
     if (!selectedDocument?.table_schema) {
       return (
@@ -1043,13 +1106,11 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
 
     const columns = selectedDocument.table_schema.columns;
 
-    // Listenansicht
     if (tableViewMode === 'list') {
       return (
         <div>
           {renderTableListView()}
           
-          {/* Footer mit Zähler und Neu-Button */}
           <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-3">
             <span className="text-xs text-gray-400">
               {tableEntries.length} {tableEntries.length === 1 ? 'Eintrag' : 'Einträge'}
@@ -1066,7 +1127,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       );
     }
 
-    // Tabellenansicht (Original)
     return (
       <div>
         {tableEntries.length === 0 ? (
@@ -1118,7 +1178,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
           </div>
         )}
         
-        {/* Footer mit Zähler und Neu-Button */}
         <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-3">
           <span className="text-xs text-gray-400">
             {tableEntries.length} {tableEntries.length === 1 ? 'Eintrag' : 'Einträge'}
@@ -1135,16 +1194,210 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     );
   };
 
-  // Prüfen ob User ganz unten ist
+  // Webseiten-Inhalt rendern (NEU)
+  const renderWebpageContent = () => {
+    return (
+      <div className="space-y-4">
+        {/* URL-Eingabe */}
+        <div className={`bg-white rounded-lg border p-4 transition-all ${
+          contentUpdated ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'
+        }`}>
+          <div className="flex items-center gap-2 mb-3">
+            <Globe className="w-4 h-4 text-gray-400" />
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">URL</span>
+          </div>
+          
+          {editingUrl ? (
+            <div className="flex gap-2">
+              <input
+                type="url"
+                value={urlInputValue}
+                onChange={(e) => setUrlInputValue(e.target.value)}
+                placeholder="https://example.com"
+                className="flex-1 px-3 py-2 text-sm border border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') saveUrl();
+                  if (e.key === 'Escape') {
+                    setEditingUrl(false);
+                    setUrlInputValue(webpageContent?.url || '');
+                  }
+                }}
+                autoFocus
+              />
+              <button
+                onClick={saveUrl}
+                disabled={savingUrl || !urlInputValue.trim()}
+                className="px-3 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              >
+                {savingUrl ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Speichern'}
+              </button>
+              <button
+                onClick={() => {
+                  setEditingUrl(false);
+                  setUrlInputValue(webpageContent?.url || '');
+                }}
+                className="px-3 py-2 bg-gray-100 text-gray-600 text-sm rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Abbrechen
+              </button>
+            </div>
+          ) : (
+            <div
+              onClick={() => setEditingUrl(true)}
+              className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors group"
+            >
+              {webpageContent?.url ? (
+                <>
+                  <span className="text-sm text-blue-600 truncate flex-1">{webpageContent.url}</span>
+                  <a
+                    href={webpageContent.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="p-1 text-gray-400 hover:text-gray-600"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </>
+              ) : (
+                <span className="text-sm text-gray-400 italic">Klicken zum Eingeben der URL...</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Webseiten-Infos (nur Anzeige) */}
+        {webpageContent && (webpageContent.title || webpageContent.thumbnail || webpageContent.description) && (
+          <div className={`bg-white rounded-lg border p-4 transition-all ${
+            contentUpdated ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'
+          }`}>
+            {/* Thumbnail */}
+            {webpageContent.thumbnail && (
+              <div className="mb-4">
+                <img
+                  src={webpageContent.thumbnail}
+                  alt={webpageContent.title || 'Vorschaubild'}
+                  className="w-full h-40 object-cover rounded-lg"
+                />
+              </div>
+            )}
+
+            {/* Titel */}
+            {webpageContent.title && (
+              <h3 className="font-semibold text-gray-900 mb-2">{webpageContent.title}</h3>
+            )}
+
+            {/* Kurzbeschreibung */}
+            {webpageContent.description && (
+              <p className="text-sm text-gray-600 mb-3">{webpageContent.description}</p>
+            )}
+
+            {/* Letzte Aktualisierung */}
+            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+              <Clock className="w-3 h-3" />
+              <span>Aktualisiert am {formatDateFull(webpageContent.created_at)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Volltext-Inhalt */}
+        {webpageContent?.content && (
+          <div className={`bg-white rounded-lg border p-4 transition-all ${
+            contentUpdated ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'
+          }`}>
+            <div className="flex items-center gap-2 mb-3">
+              <FileText className="w-4 h-4 text-gray-400" />
+              <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Seiteninhalt</span>
+            </div>
+            <div className="prose prose-sm max-w-none text-gray-700">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {webpageContent.content}
+              </ReactMarkdown>
+            </div>
+          </div>
+        )}
+
+        {/* Ausgehende Links */}
+        {webpageContent?.links && webpageContent.links.length > 0 && (
+          <div className={`bg-white rounded-lg border p-4 transition-all ${
+            contentUpdated ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'
+          }`}>
+            <div className="flex items-center gap-2 mb-3">
+              <Link2 className="w-4 h-4 text-gray-400" />
+              <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Ausgehende Links ({webpageContent.links.length})
+              </span>
+            </div>
+            <div className="space-y-1 max-h-40 overflow-y-auto">
+              {webpageContent.links.map((link, index) => (
+                <a
+                  key={index}
+                  href={link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-sm text-blue-600 hover:underline truncate"
+                >
+                  {link}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Leerer Zustand */}
+        {!webpageContent && (
+          <div className="text-center py-8 text-gray-500">
+            <Globe className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+            <p className="text-sm">Noch keine Webseite erfasst</p>
+            <p className="text-xs text-gray-400 mt-1">
+              Gib eine URL ein, um zu beginnen.
+            </p>
+          </div>
+        )}
+
+        {/* Versionshistorie */}
+        {webpageHistory.length > 1 && (
+          <div className="mt-6">
+            <h6 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              Versionshistorie
+            </h6>
+            <div className="space-y-1">
+              {webpageHistory.map((version) => (
+                <button
+                  key={version.id}
+                  onClick={() => loadWebpageVersion(version)}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                    webpageContent?.id === version.id
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-white border border-gray-200 text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span>Version {version.version}</span>
+                    <span className={`text-xs ${
+                      webpageContent?.id === version.id ? 'text-gray-300' : 'text-gray-400'
+                    }`}>
+                      {formatDate(version.created_at)}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const checkIfAtBottom = () => {
     const container = messagesContainerRef.current;
     if (!container) return;
     
-    const threshold = 100; // Pixel-Toleranz
+    const threshold = 100;
     const isBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
     setIsAtBottom(isBottom);
     
-    // Wenn am Ende angekommen, Ungelesen-Status zurücksetzen
     if (isBottom && hasUnreadMessages) {
       setHasUnreadMessages(false);
       updateReadStatus();
@@ -1200,7 +1453,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     const userContent = inputValue.trim();
     setInputValue('');
     
-    // Textarea-Höhe zurücksetzen
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -1230,6 +1482,16 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     });
   };
 
+  const formatDateFull = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('de-DE', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   const formatRelativeDate = (dateStr: string) => {
     const date = new Date(dateStr);
     const now = new Date();
@@ -1247,6 +1509,18 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     if (diffDays < 7) return `Vor ${diffDays} ${diffDays === 1 ? 'Tag' : 'Tagen'}`;
     if (diffWeeks < 4) return `Vor ${diffWeeks} ${diffWeeks === 1 ? 'Woche' : 'Wochen'}`;
     return `Vor ${diffMonths} ${diffMonths === 1 ? 'Monat' : 'Monaten'}`;
+  };
+
+  // Icon für Dokumenttyp
+  const getDocumentIcon = (type: Document['type']) => {
+    switch (type) {
+      case 'table':
+        return <Table className="w-4 h-4" />;
+      case 'webpage':
+        return <Globe className="w-4 h-4" />;
+      default:
+        return <FileText className="w-4 h-4" />;
+    }
   };
 
   const previousVersion = getPreviousVersion();
@@ -1347,7 +1621,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Scroll to Bottom Button - Grün und blinkend bei ungelesenen Nachrichten */}
+      {/* Scroll to Bottom Button */}
       {!isAtBottom && messages.length > 0 && (
         <button
           onClick={scrollToBottom}
@@ -1377,7 +1651,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
             value={inputValue}
             onChange={(e) => {
               setInputValue(e.target.value);
-              // Auto-resize
               e.target.style.height = 'auto';
               e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
             }}
@@ -1413,7 +1686,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         <h4 className="font-semibold text-sm text-gray-900">Dokumente</h4>
       </div>
 
-      {/* Dokument ausgewählt: Inhalt anzeigen */}
+      {/* Dokument ausgewählt */}
       {selectedDocument ? (
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           {/* Dokument-Header */}
@@ -1423,7 +1696,10 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                 setSelectedDocument(null);
                 setDocumentContent(null);
                 setTableEntries([]);
+                setWebpageContent(null);
+                setWebpageHistory([]);
                 setEditingCell(null);
+                setEditingUrl(false);
               }}
               className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 mb-2"
             >
@@ -1450,7 +1726,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
               
               {/* Toggle-Buttons */}
               <div className="flex items-center gap-2">
-                {/* NEU: Tabellen-Ansicht Toggle */}
                 {selectedDocument.type === 'table' && tableEntries.length > 0 && (
                   <button
                     onClick={() => setTableViewMode(tableViewMode === 'table' ? 'list' : 'table')}
@@ -1466,7 +1741,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                   </button>
                 )}
                 
-                {/* Diff-Toggle für Text-Dokumente */}
                 {selectedDocument.type === 'text' && previousVersion && (
                   <button
                     onClick={() => setShowDiff(!showDiff)}
@@ -1492,14 +1766,15 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                 <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
               </div>
             ) : selectedDocument.type === 'table' ? (
-              /* Tabellen-Inhalt */
               <div className={`bg-white rounded-lg border p-4 transition-all ${
                 contentUpdated ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'
               }`}>
                 {renderTableContent()}
               </div>
+            ) : selectedDocument.type === 'webpage' ? (
+              // Webseiten-Inhalt (NEU)
+              renderWebpageContent()
             ) : documentContent ? (
-              /* Text-Inhalt */
               <div className="space-y-4">
                 <div className={`bg-white rounded-lg border p-4 transition-all ${
                   contentUpdated ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'
@@ -1576,11 +1851,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-gray-100 text-gray-500 group-hover:bg-gray-200 transition-colors">
-                    {doc.type === 'table' ? (
-                      <Table className="w-4 h-4" />
-                    ) : (
-                      <FileText className="w-4 h-4" />
-                    )}
+                    {getDocumentIcon(doc.type)}
                   </div>
                   <div className="min-w-0">
                     <h5 className="font-medium text-sm text-gray-900 truncate">{doc.name}</h5>
@@ -1604,7 +1875,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   return (
     <div className="flex flex-col h-full bg-white">
       
-      {/* Mobile Tab-Bar (nur wenn Dokumente vorhanden) */}
+      {/* Mobile Tab-Bar */}
       {hasDocuments && (
         <div className="lg:hidden flex border-b border-gray-200 bg-white">
           <button
@@ -1638,7 +1909,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
       {/* Content-Bereich */}
       <div className="flex-1 flex overflow-hidden">
         
-        {/* MOBILE: Tab-basierte Ansicht */}
+        {/* MOBILE */}
         <div className="lg:hidden flex-1 flex overflow-hidden">
           {mobileTab === 'chat' || !hasDocuments ? (
             renderChat()
@@ -1647,15 +1918,12 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
           )}
         </div>
 
-        {/* DESKTOP: Side-by-Side Layout */}
+        {/* DESKTOP */}
         <div ref={containerRef} className="hidden lg:flex flex-1 overflow-hidden relative">
-          {/* Chat-Bereich */}
           {renderChat()}
 
-          {/* Dokumente-Panel (Desktop) */}
           {hasDocuments && (
             <>
-              {/* Resizer Handle */}
               <div
                 onMouseDown={startResizing}
                 className={`
@@ -1665,7 +1933,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                 title="Breite anpassen"
               />
               
-              {/* Panel mit dynamischer Breite */}
               <div 
                 style={{ width: panelWidth }} 
                 className="flex-shrink-0 flex flex-col overflow-hidden bg-gray-50"

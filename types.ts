@@ -51,9 +51,6 @@ export interface TableColumn {
 export interface TableSchema {
   type: string;
   columns: TableColumn[];
-  // NEU: Definiert welche Spalten für den Listentitel verwendet werden
-  // Beispiel: ["titel", "vorname", "nachname"] für Personen
-  // Beispiel: ["name", "firma"] für Organisationen
   title_columns?: string[];
 }
 
@@ -64,7 +61,7 @@ export interface Document {
   name: string;
   description: string | null;
   agent_ids: string[];
-  type: 'text' | 'table';
+  type: 'text' | 'table' | 'webpage';
   table_schema: TableSchema | null;
   created_at: string;
 }
@@ -88,6 +85,22 @@ export interface TableEntry {
   data: Record<string, string | number | null>;
   version: number;
   position: number;
+  created_at: string;
+}
+
+// Webseiten-Einträge (NEU)
+
+export interface WebpageEntry {
+  id: string;
+  document_id: string;
+  workspace_id: string;
+  url: string;
+  title: string | null;
+  thumbnail: string | null;
+  description: string | null;
+  content: string | null;
+  links: string[];
+  version: number;
   created_at: string;
 }
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { Agent, Document, MessageReadStatus } from '../types';
-import { Sparkles, AlertCircle, FileText, Mail, Table, RefreshCw } from 'lucide-react';
+import { Sparkles, AlertCircle, FileText, Mail, Table, RefreshCw, Globe } from 'lucide-react';
 
 interface AgentGridProps {
   onSelectAgent: (agent: Agent) => void;
@@ -137,6 +137,18 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent, workspaceId
 
   const getDocumentsForAgent = (agentId: string): Document[] => {
     return documents.filter(doc => doc.agent_ids.includes(agentId));
+  };
+
+  // Icon für Dokumenttyp
+  const getDocumentIcon = (type: Document['type']) => {
+    switch (type) {
+      case 'table':
+        return <Table className="w-3 h-3 sm:w-4 sm:h-4" />;
+      case 'webpage':
+        return <Globe className="w-3 h-3 sm:w-4 sm:h-4" />;
+      default:
+        return <FileText className="w-3 h-3 sm:w-4 sm:h-4" />;
+    }
   };
 
   const seedAgents = async () => {
@@ -292,11 +304,7 @@ export const AgentGrid: React.FC<AgentGridProps> = ({ onSelectAgent, workspaceId
                             title={doc.name}
                             className="p-1 sm:p-1.5 bg-gray-50 rounded-md text-gray-400"
                           >
-                            {doc.type === 'table' ? (
-                              <Table className="w-3 h-3 sm:w-4 sm:h-4" />
-                            ) : (
-                              <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
-                            )}
+                            {getDocumentIcon(doc.type)}
                           </div>
                         ))}
                         {agentDocs.length > 3 && (
