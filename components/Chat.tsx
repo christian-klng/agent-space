@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { Agent, Message, Document, Content, Workspace, TableEntry, TableColumn, WebpageEntry } from '../types';
-import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle, ChevronDown, Table, Plus, List, Globe, ExternalLink, Link2 } from 'lucide-react';
+import { Send, ArrowLeft, Loader2, FileText, ChevronRight, Clock, GitCompare, Zap, MessageCircle, ChevronDown, Table, Plus, List, Globe, ExternalLink, Link2, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import * as Diff from 'diff';
+import * as XLSX from 'xlsx';
+import { Document as DocxDocument, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
+import { saveAs } from 'file-saver';
 
 interface ChatProps {
   agent: Agent;
@@ -148,7 +151,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   const [updatedRowId, setUpdatedRowId] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLDivElement | HTMLTableRowElement | null>>({});
   
-  // Webseiten State (NEU)
+  // Webseiten State
   const [webpageContent, setWebpageContent] = useState<WebpageEntry | null>(null);
   const [webpageHistory, setWebpageHistory] = useState<WebpageEntry[]>([]);
   const [editingUrl, setEditingUrl] = useState(false);
@@ -179,6 +182,134 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
   
   // Realtime-Indikator
   const [contentUpdated, setContentUpdated] = useState(false);
+
+  // === EXPORT FUNKTIONEN ===
+
+  // Tabelle als XLSX herunterladen
+  const downloadAsXlsx = () => {
+    if (!selectedDocument?.table_schema || tableEntries.length === 0) return;
+
+    const columns = selectedDocument.table_schema.columns;
+    
+    // Header-Zeile
+    const headers = columns.map(col => col.label);
+    
+    // Daten-Zeilen
+    const rows = tableEntries.map(entry => 
+      columns.map(col => {
+        const val = entry.data[col.key];
+        return val !== null && val !== undefined ? String(val) : '';
+      })
+    );
+
+    // Worksheet erstellen
+    const wsData = [headers, ...rows];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    
+    // Spaltenbreiten automatisch anpassen
+    const colWidths = columns.map((col, i) => {
+      const maxLen = Math.max(
+        col.label.length,
+        ...rows.map(row => (row[i] || '').length)
+      );
+      return { wch: Math.min(maxLen + 2, 50) };
+    });
+    ws['!cols'] = colWidths;
+
+    // Workbook erstellen und speichern
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, selectedDocument.name.slice(0, 31));
+    
+    const filename = `${selectedDocument.name.replace(/[^a-zA-Z0-9äöüÄÖÜß\s-]/g, '')}.xlsx`;
+    XLSX.writeFile(wb, filename);
+  };
+
+  // Text-Dokument als DOCX herunterladen
+  const downloadAsDocx = async () => {
+    if (!selectedDocument || !documentContent) return;
+
+    const content = documentContent.content;
+    const lines = content.split('\n');
+    const children: Paragraph[] = [];
+
+    for (const line of lines) {
+      // Überschriften erkennen
+      if (line.startsWith('### ')) {
+        children.push(new Paragraph({
+          text: line.replace('### ', ''),
+          heading: HeadingLevel.HEADING_3,
+          spacing: { before: 240, after: 120 }
+        }));
+      } else if (line.startsWith('## ')) {
+        children.push(new Paragraph({
+          text: line.replace('## ', ''),
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 280, after: 140 }
+        }));
+      } else if (line.startsWith('# ')) {
+        children.push(new Paragraph({
+          text: line.replace('# ', ''),
+          heading: HeadingLevel.HEADING_1,
+          spacing: { before: 320, after: 160 }
+        }));
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        // Aufzählungspunkte
+        children.push(new Paragraph({
+          children: [new TextRun(line.replace(/^[-*]\s/, '• '))],
+          spacing: { before: 60, after: 60 }
+        }));
+      } else if (line.trim() === '') {
+        // Leerzeile
+        children.push(new Paragraph({ text: '' }));
+      } else {
+        // Normaler Text mit Fett/Kursiv
+        const runs: TextRun[] = [];
+        let remaining = line;
+        
+        // Fett (**text**) und Kursiv (*text*) parsen
+        const pattern = /(\*\*(.+?)\*\*|\*(.+?)\*)/g;
+        let lastIndex = 0;
+        let match;
+        
+        while ((match = pattern.exec(remaining)) !== null) {
+          // Text vor dem Match
+          if (match.index > lastIndex) {
+            runs.push(new TextRun(remaining.slice(lastIndex, match.index)));
+          }
+          
+          // Fett oder Kursiv
+          if (match[2]) {
+            runs.push(new TextRun({ text: match[2], bold: true }));
+          } else if (match[3]) {
+            runs.push(new TextRun({ text: match[3], italics: true }));
+          }
+          
+          lastIndex = match.index + match[0].length;
+        }
+        
+        // Restlicher Text
+        if (lastIndex < remaining.length) {
+          runs.push(new TextRun(remaining.slice(lastIndex)));
+        }
+        
+        children.push(new Paragraph({
+          children: runs.length > 0 ? runs : [new TextRun(line)],
+          spacing: { before: 60, after: 60 }
+        }));
+      }
+    }
+
+    const doc = new DocxDocument({
+      sections: [{
+        properties: {},
+        children
+      }]
+    });
+
+    const blob = await Packer.toBlob(doc);
+    const filename = `${selectedDocument.name.replace(/[^a-zA-Z0-9äöüÄÖÜß\s-]/g, '')}.docx`;
+    saveAs(blob, filename);
+  };
 
   // Resizer Event Handlers
   const startResizing = (e: React.MouseEvent) => {
@@ -369,7 +500,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     };
   }, [selectedDocument?.id, selectedDocument?.type, workspaceId]);
 
-  // Realtime für webpages (NEU)
+  // Realtime für webpages
   useEffect(() => {
     if (!selectedDocument || selectedDocument.type !== 'webpage') return;
 
@@ -531,7 +662,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
         setTableEntries(entries);
       }
     } else if (doc.type === 'webpage') {
-      // Webseiten laden (NEU)
       const { data: latestData, error: latestError } = await supabase
         .from('webpages')
         .select('*')
@@ -1205,7 +1335,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     );
   };
 
-  // Webseiten-Inhalt rendern (NEU)
+  // Webseiten-Inhalt rendern
   const renderWebpageContent = () => {
     return (
       <div className="space-y-4">
@@ -1718,8 +1848,33 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                 )}
               </div>
               
-              {/* Toggle-Buttons */}
+              {/* Action-Buttons */}
               <div className="flex items-center gap-2">
+                {/* Download-Button für Tabellen (XLSX) */}
+                {selectedDocument.type === 'table' && tableEntries.length > 0 && (
+                  <button
+                    onClick={downloadAsXlsx}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                    title="Als Excel herunterladen"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span className="hidden sm:inline">XLSX</span>
+                  </button>
+                )}
+
+                {/* Download-Button für Text-Dokumente (DOCX) */}
+                {selectedDocument.type === 'text' && documentContent && (
+                  <button
+                    onClick={downloadAsDocx}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                    title="Als Word herunterladen"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span className="hidden sm:inline">DOCX</span>
+                  </button>
+                )}
+
+                {/* Tabellen-Ansicht Toggle */}
                 {selectedDocument.type === 'table' && tableEntries.length > 0 && (
                   <button
                     onClick={() => setTableViewMode(tableViewMode === 'table' ? 'list' : 'table')}
@@ -1735,6 +1890,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                   </button>
                 )}
                 
+                {/* Diff-Toggle für Text-Dokumente */}
                 {selectedDocument.type === 'text' && previousVersion && (
                   <button
                     onClick={() => setShowDiff(!showDiff)}
@@ -1766,7 +1922,6 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                 {renderTableContent()}
               </div>
             ) : selectedDocument.type === 'webpage' ? (
-              // Webseiten-Inhalt (NEU)
               renderWebpageContent()
             ) : documentContent ? (
               <div className="space-y-4">
