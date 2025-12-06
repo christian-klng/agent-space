@@ -643,6 +643,16 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     );
   };
 
+  // URL normalisieren (Protokoll hinzufügen falls fehlt)
+  const normalizeUrl = (url: string): string => {
+    const trimmed = url.trim();
+    if (!trimmed) return trimmed;
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    return `https://${trimmed}`;
+  };
+
   // URL speichern (für Webseiten)
   const saveUrl = async () => {
     if (!selectedDocument || !urlInputValue.trim()) return;
@@ -650,11 +660,12 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
     setSavingUrl(true);
     
     const newVersion = webpageContent ? webpageContent.version + 1 : 1;
+    const normalizedUrl = normalizeUrl(urlInputValue);
     
     const { error } = await supabase.from('webpages').insert({
       document_id: selectedDocument.id,
       workspace_id: workspaceId,
-      url: urlInputValue.trim(),
+      url: normalizedUrl,
       title: webpageContent?.title || null,
       thumbnail: webpageContent?.thumbnail || null,
       description: webpageContent?.description || null,
@@ -1250,7 +1261,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
                 <>
                   <span className="text-sm text-blue-600 truncate flex-1">{webpageContent.url}</span>
                   <a
-                    href={webpageContent.url}
+                    href={normalizeUrl(webpageContent.url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
@@ -1332,7 +1343,7 @@ export const Chat: React.FC<ChatProps> = ({ agent, userId, workspaceId, onBack }
               {webpageContent.links.map((link, index) => (
                 <a
                   key={index}
-                  href={link}
+                  href={normalizeUrl(link)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block text-sm text-blue-600 hover:underline truncate"
